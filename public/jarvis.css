@@ -432,3 +432,19 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 #spider { width: 150px; height: 154px; margin: -77px 0 0 -75px; }
 #spider.angry .octo-body, #spider.angry .arm-top { fill: #ef4444; }
 #spider.angry .arm-under { fill: #fecaca; }
+
+/* Claude: per account, the session and the week, each with a bar and when it resets. */
+.cu { margin-bottom: 11px; }
+.cu:last-child { margin-bottom: 0; }
+.cu-name { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+.cu-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.cu-row b { color: #e2e8f0; font-weight: 700; }
+.cu-row small { font-size: 11px; color: var(--muted); margin-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+.cu-bar { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); margin: 3px 0 5px; overflow: hidden; }
+.cu-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #6366f1, #a855f7); }
+.cu-bar.warn i { background: linear-gradient(90deg, #f59e0b, #f97316); }
+.cu-bar.full i { background: #ef4444; }
+.cu.off .cu-name { color: var(--dim); }
+
+/* WhatsApp: the real screen from the Jarvis PC, filling the monitor. */
+#wa-screen { display: none; flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #0b141a; }

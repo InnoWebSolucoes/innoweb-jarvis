@@ -168,18 +168,19 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       $("todo").innerHTML = "<li><span>Reading the FlowDesk to-do list</span></li>";
     }
     const pctCls = (v) => v >= 100 ? "full" : v >= 85 ? "warn" : "";
-    const todayShort = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const shortReset = (txt) => {
-      const r = String(txt || "").replace(/^resets\s+/, "");
-      return r.indexOf(todayShort) === 0 ? r.split(",").pop().trim() : r.split(",")[0];
+    const resets = (iso, fallback) => {
+      const ms = Date.parse(iso) - Date.now();
+      if (isNaN(ms)) return fallback ? "resets " + fallback : "";
+      if (ms <= 0) return "resetting now";
+      if (ms < 864e5) {
+        const h = Math.floor(ms / 36e5), m = Math.floor(ms % 36e5 / 6e4);
+        return "resets in " + (h ? h + "h " : "") + m + "m";
+      }
+      const d = new Date(iso);
+      return "resets " + d.toLocaleDateString("en-GB", { weekday: "short" }) + " " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     };
-    const ring = (p) => {
-      const r = 24, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, p || 0));
-      const col = v >= 90 ? "#f87171" : "url(#gRing)";
-      return `<svg viewBox="0 0 58 58"><circle cx="29" cy="29" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/><circle cx="29" cy="29" r="${r}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 29 29)"/></svg>`;
-    };
-    $("tokens").innerHTML = (S.tokens || []).map((t) => t.used == null ? `<div class="cl off"><div class="cl-ring">${ring(0)}<b>\u2014</b></div><div class="cl-info"><div class="cl-name">${esc(t.account)}</div><div class="cl-sub">${esc(t.note || "")}</div></div></div>` : `<div class="cl"><div class="cl-ring">${ring(t.used)}<b>${Math.round(t.used)}%</b></div><div class="cl-info"><div class="cl-name">${esc(t.account)}</div>
-          <div class="cl-sub">session${t.note ? ", resets " + esc(shortReset(t.note)) : ""}</div><div class="cl-sub">week <b>${t.week == null ? "\u2014" : Math.round(t.week) + "%"}</b></div></div></div>`).join("") || '<div class="empty">Reading Claude usage</div>';
+    const limit = (label, v, when) => `<div class="cu-row"><span>${label} <b>${v == null ? "\u2014" : Math.round(v) + "%"}</b></span><small>${esc(when)}</small></div><div class="cu-bar ${pctCls(v || 0)}"><i style="width:${Math.max(0, Math.min(100, v || 0))}%"></i></div>`;
+    $("tokens").innerHTML = (S.tokens || []).map((t) => t.used == null ? `<div class="cu off"><div class="cu-name">${esc(t.account)}</div><div class="cu-row"><small>${esc(t.note === "not signed in yet" ? "not connected yet" : t.note || "")}</small></div></div>` : `<div class="cu"><div class="cu-name">${esc(t.account)}</div>${limit("Session", t.used, resets(t.sessionAt, String(t.note || "").replace(/^resets\s+/, "")))}${limit("Week", t.week, resets(t.weekAt, t.weekReset))}</div>`).join("") || '<div class="empty">Reading Claude usage</div>';
     const fd = S.flowdesk || {};
     if (fd.ok) {
       $("team-total").textContent = `${fd.doneToday} today, ${fd.doneWeek} this week`;
@@ -504,15 +505,37 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     };
     next();
   }
+  let waTimer = null, waLoading = false;
+  function waFrame() {
+    const wa = S && S.whatsapp;
+    if (!wa || !wa.ready || waLoading) return;
+    waLoading = true;
+    const img = new Image();
+    img.onload = () => {
+      waLoading = false;
+      $("wa-screen").src = img.src;
+      $("wa-screen").style.display = "block";
+      $("wa-msgs").style.display = "none";
+    };
+    img.onerror = () => {
+      waLoading = false;
+    };
+    img.src = "/api/whatsapp/screen?t=" + Date.now();
+  }
   function showWhatsApp(on) {
     const el = $("wa-view");
     el.className = on ? "wa-view show" : "wa-view";
+    clearInterval(waTimer);
     if (!on) {
       const d = rotator.current();
       if (d) $("site-name").textContent = d.name;
+      if (zoomed === "site") unzoom();
       return;
     }
+    if (zoomed !== "site") zoom("site", 600);
     $("site-name").textContent = "WhatsApp";
+    waTimer = setInterval(waFrame, 1e3);
+    waFrame();
     const wa = S && S.whatsapp;
     $("wa-chat").textContent = wa && wa.chat ? wa.chat : wa && wa.qr ? "scan to link" : "starting";
     $("wa-msgs").innerHTML = wa && wa.ready && wa.messages && wa.messages.length ? wa.messages.slice(-12).map((m) => `<div class="wa-m${m.mine ? " mine" : ""}"><b>${esc(m.from)}</b>${esc(m.text)}<i>${esc(m.time || "")}</i></div>`).join("") : wa && wa.qr ? `<div class="wa-qr"><img src="${wa.qr}" alt=""><div>On the phone: WhatsApp, Settings, <b>Linked devices</b>, <b>Link a device</b>, then scan this code.</div></div>` : wa && wa.ready ? `<div class="wa-empty">${esc(wa.detail || "Linked. Waiting for the group chat.")}</div>` : '<div class="wa-empty">WhatsApp is starting on the Jarvis computer.</div>';
@@ -1073,26 +1096,39 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       $("say").className = "";
     }, Math.max(6e3, (reply || "").split(" ").length * 420));
   }
-  function speak(c) {
-    if (muted || !c.reply || !(S && S.board && S.board.tvSpeaks)) return;
+  function speak(c, onStart) {
+    if (muted || !(c.reply || c.streaming) || !(S && S.board && S.board.tvSpeaks)) return false;
     const fallback = () => {
       if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
       const u = new SpeechSynthesisUtterance(c.reply);
       u.lang = "en-GB";
       window.speechSynthesis.speak(u);
     };
-    const hold = () => clearTimeout(sayTimer);
+    let started = false;
+    const start = () => {
+      if (started) return;
+      started = true;
+      clearTimeout(guard);
+      clearTimeout(sayTimer);
+      if (onStart) onStart();
+    };
     const release = () => {
       clearTimeout(sayTimer);
       sayTimer = setTimeout(() => {
         $("say").className = "";
       }, 2500);
     };
-    try {
-      play("/api/tts/" + c.id, fallback, hold, release);
-    } catch (err) {
+    const guard = setTimeout(start, 15e3);
+    const fail = () => {
+      start();
       fallback();
+    };
+    try {
+      play("/api/tts/" + c.id, fail, start, release);
+    } catch (err) {
+      fail();
     }
+    return true;
   }
   let playing = null;
   function play(src, fallback, onStart, onEnd) {
@@ -1117,9 +1153,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   }
   function runCommand(c) {
     if (c.action === "announce") {
-      showSay("", c.reply);
-      speak(c);
-      if (c.panel) zoom(c.panel, 20);
+      const go2 = () => {
+        showSay("", c.reply);
+        if (c.panel) zoom(c.panel, 20);
+      };
+      if (!speak(c, go2)) go2();
       return;
     }
     if (c.action === "thinking") {
@@ -1134,9 +1172,17 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       return;
     }
     if (c.action === "unmute") muted = false;
-    if (c.streaming) liveCommand = c.id;
-    showSay(c.heard, c.reply || "\u2026");
-    speak(c);
+    const go = () => {
+      showSay(c.heard, c.reply || "\u2026");
+      if (c.streaming) liveCommand = c.id;
+      act(c);
+    };
+    if (speak(c, go)) {
+      showSay(c.heard, "Thinking");
+      $("say").className = "show thinking";
+    } else go();
+  }
+  function act(c) {
     switch (c.action) {
       case "zoom":
         zoom(c.panel);

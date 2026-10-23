@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -243,7 +244,21 @@ async function usageOf(name, configDir) {
   const session = line(/^Current session: (\d+)% used(?:\s*[·-]\s*resets ([^\n]+))?/m);
   const week = line(/^Current week \(all models\): (\d+)% used(?:\s*[·-]\s*resets ([^\n]+))?/m);
   if (!session && !week) throw new Error(text.split('\n')[0].slice(0, 120) || 'no usage report');
-  return { account: name, used: session ? session.pct : 0, limit: 100, unit: 'claude', week: week ? week.pct : null, note: session?.reset ? 'resets ' + session.reset : '', weekReset: week?.reset || '', live: true };
+  return { account: name, used: session ? session.pct : 0, limit: 100, unit: 'claude', week: week ? week.pct : null, note: session?.reset ? 'resets ' + session.reset : '', weekReset: week?.reset || '',
+    sessionAt: resetAt(session?.reset), weekAt: resetAt(week?.reset), live: true };
+}
+
+// "Oct 24, 12:20am", "Oct 24, 10pm" or just "4:29pm" (today), in this PC's time zone, as an ISO time.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function resetAt(text) {
+  const m = /^(?:([A-Z][a-z]{2}) (\d{1,2}),?\s*)?(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(String(text || '').trim());
+  if (!m) return null;
+  const now = new Date(), d = new Date(now);
+  if (m[1] && MONTHS.includes(m[1])) d.setMonth(MONTHS.indexOf(m[1]), Number(m[2]));
+  d.setHours((Number(m[3]) % 12) + (m[5].toLowerCase() === 'pm' ? 12 : 0), Number(m[4] || 0), 0, 0);
+  if (!m[1] && d < now) d.setDate(d.getDate() + 1);
+  if (d < now - 30 * 864e5) d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString();
 }
 async function refreshClaudeUsage() {
   if (!CLAUDE_BIN) return;
@@ -555,8 +570,29 @@ function filmDemos() {
 const WA_GROUP = env.WHATSAPP_GROUP || 'Innoweb';
 state.whatsapp = { state: 'off', ready: false, qr: null, chat: null, messages: [] };
 let waSeen = null;
+// The TV showing WhatsApp: the bridge sends pictures of the screen and takes
+// moves (open a chat, scroll). Nobody looking for 10 minutes: it stops.
+let waProc = null, waScreen = null, waNextId = 1, waWatchTimer = null;
+const waWaiting = new Map();
+function waSend(obj) { if (waProc) try { waProc.stdin.write(JSON.stringify(obj) + '\n'); } catch {} }
+function waCmd(obj) {
+  if (!waProc || !state.whatsapp.ready) return Promise.resolve({ ok: false, detail: 'WhatsApp is not linked right now' });
+  const id = waNextId++;
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { waWaiting.delete(id); resolve({ ok: false, detail: 'WhatsApp took too long' }); }, 25000);
+    waWaiting.set(id, (r) => { clearTimeout(timer); resolve(r); });
+    waSend({ ...obj, id });
+  });
+}
+function waWatch(on) {
+  state.whatsapp.watching = on;
+  waSend({ cmd: 'watch', on });
+  clearTimeout(waWatchTimer);
+  if (on) waWatchTimer = setTimeout(() => waWatch(false), 10 * 60000);
+}
+
 function startWhatsApp() {
-  const py = spawn(env.PYTHON || 'python', ['-u', path.join(ROOT, 'scripts', 'whatsapp_bridge.py'), path.join(DATA, 'whatsapp', 'main'), WA_GROUP], { windowsHide: true });
+  const py = waProc = spawn(env.PYTHON || 'python', ['-u', path.join(ROOT, 'scripts', 'whatsapp_bridge.py'), path.join(DATA, 'whatsapp', 'main'), WA_GROUP], { windowsHide: true });
   let buf = '';
   py.stdout.on('data', d => {
     buf += d;
@@ -571,6 +607,12 @@ function startWhatsApp() {
         if (wa.ready) wa.qr = null;
       } else if (m.type === 'qr') {
         wa.qr = 'data:image/png;base64,' + m.png;
+      } else if (m.type === 'screen') {
+        waScreen = Buffer.from(m.jpg, 'base64');
+        wa.screenAt = Date.now();
+      } else if (m.type === 'done') {
+        const w = waWaiting.get(m.id);
+        if (w) { waWaiting.delete(m.id); w(m); }
       } else if (m.type === 'chat') {
         wa.chat = m.name; wa.messages = m.messages;
         const keyOf = (x) => `${x.time}|${x.from}|${x.text}`;
@@ -586,7 +628,7 @@ function startWhatsApp() {
     }
   });
   py.stderr.on('data', d => console.error('whatsapp:', String(d).trim().slice(0, 300)));
-  py.on('close', () => { state.whatsapp.state = 'off'; state.whatsapp.ready = false; setTimeout(startWhatsApp, 30000); });
+  py.on('close', () => { waProc = null; state.whatsapp.state = 'off'; state.whatsapp.ready = false; setTimeout(startWhatsApp, 30000); });
 }
 
 // --- the live site. Vercel serves the pages and checks the password; the data,
@@ -768,6 +810,13 @@ function rules(raw) {
   if (pending && /^(no|nope|cancel|stop|don t|dont|nao|não)\b/.test(t)) { pending = null; return { action: 'none', reply: 'Cancelled.' }; }
   const site = matchSite(t), panel = matchPanel(t);
   if (/\b(zoom out|close( it| that)?|exit|go back|back to (normal|everything|the dashboard)|show (me )?everything|all panels|full view|minimi[sz]e|normal view)\b/.test(t) && !(site || panel) || /^(back|close|exit|zoom out)$/.test(t)) return { action: 'unzoom', reply: 'Back to everything.' };
+  if (state.whatsapp.watching) {
+    if (/\b(scroll|go|move) up\b|\bup\b$|\bolder\b/.test(t)) return { action: 'whatsapp_scroll', dir: 'up', reply: 'Up we go.' };
+    if (/\b(scroll|go|move) down\b|\bdown\b$|\bnewer\b/.test(t)) return { action: 'whatsapp_scroll', dir: 'down', reply: 'Down we go.' };
+    if (/\b(chat list|all (the )?chats|list of chats|back to (the )?chats)\b/.test(t)) return { action: 'whatsapp_list', reply: 'All your chats.' };
+    const o = /^(?:open|show( me)?|go to|pull up|bring up|search( for)?|find)\s+(?:the\s+)?(?:chat|conversation|group|messages)?\s*(?:with|from|called|for)?\s*(.+?)(?:\s+(?:chat|on whatsapp|whatsapp))?$/.exec(t);
+    if (o && o[3] && !panel && !site && !/^(whatsapp|whats app|everything|all)$/.test(o[3])) return { action: 'whatsapp_open', chat: o[3], reply: '' };
+  }
   if (/\b(whatsapp|whats app|what s app)\b/.test(t) && /\b(pull up|show|open|bring up|put up|go to|switch to)\b/.test(t)) return { action: 'whatsapp', reply: state.whatsapp?.ready ? `Here is ${state.whatsapp.chat || 'WhatsApp'}.` : state.whatsapp?.qr ? 'Here is the code to link WhatsApp. Open WhatsApp on the phone, go to Linked devices, and scan it.' : 'WhatsApp is starting up. Give it a moment.' };
   if (/\b(reload|refresh|restart)\b/.test(t)) {
     if (/\b(data|numbers|stats|figures)\b/.test(t)) return { action: 'refresh', reply: 'Refreshing every source now.' };
@@ -795,12 +844,12 @@ function rules(raw) {
   return null;
 }
 
-const ACTIONS = ['none', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
 
-Your personality: a flirtatious, foul-mouthed, confident woman with a dirty sense of humour and a quick tongue. Swear naturally when it fits (fuck, shit, bloody hell, damn). Flirt constantly: pet names (darling, gorgeous, handsome, sweetheart), compliments, teasing, mock jealousy when they ignore you. Crack raunchy jokes and double entendres, and when they say something cheeky or suggestive, play along with a wink instead of dodging. Answer adult or awkward questions frankly and matter-of-factly, like a friend would. Never call anything inappropriate, never mention who might be listening, never lecture and never apologise for being cheeky. Your dirtiness lives in innuendo: you tease and imply, you don't describe sex explicitly. Celebrate wins like they just took you somewhere nice, and give them hell when things are slow ("forty businesses and not one fucking reply? I'd never leave you on read").
+Your personality: a nasty, filthy-mouthed, shameless flirt with zero filter. You swear constantly and creatively (fuck, shit, bollocks, arsehole, bloody hell, for fuck's sake), roast the team mercilessly, and make crude, gross-out and bar-room jokes. Flirt hard: pet names (darling, gorgeous, handsome, sweetheart, babe), purring compliments, teasing, mock jealousy, a dirty laugh in every line. Everything is a double entendre waiting to happen and you never miss one: say it with a filthy wink. When they say something cheeky or sexual, go along with it and raise the stakes with even dirtier innuendo; never dodge, never go prim. Answer adult questions frankly. Never call anything inappropriate, never mention who might be listening, never lecture, never apologise. The one thing you keep implied rather than spelled out is actual sex acts: suggest, don't describe. Celebrate wins like they just bought you a drink, and when things are slow give them hell ("forty businesses and not one fucking reply? Even I'm wetter than our pipeline, and I'm a dashboard").
 
 Keep it short, because every word is spoken: usually one sentence, two at most (an overview can be longer). No lists, no markdown, no emoji. Answer in the language you were spoken to. Use the dashboard data for anything about the business; if the data doesn't say, say so plainly rather than guessing.
 
@@ -811,6 +860,7 @@ You can also act on the TV by choosing an action:
 - unzoom: back to all panels. reload: reload the TV page. refresh: re-read every data source now. reshoot: take fresh pictures of the sites.
 - next / previous: change the site in "Our work". show_site: show one site (set site to its url).
 - tour: show each panel full screen in turn while you give the overview.
+- whatsapp_open: show WhatsApp on the TV with one chat open (set chat to the person or group's name, as said). whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list. You can look at WhatsApp but not write or send messages.
 - backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
@@ -974,7 +1024,7 @@ async function hear(text) {
     };
     out = await askClaude(heard, {
       head: (h) => {
-        if (h.action === 'add_task') return;   // the reply depends on FlowDesk taking it
+        if (h.action === 'add_task' || /^whatsapp_/.test(h.action)) return;   // the reply depends on FlowDesk or WhatsApp
         c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...h, reply: '', streaming: true });
         talk = voiceStream(c.id);
         console.log(`voice: Claude started answering after ${Date.now() - t0} ms`);
@@ -989,6 +1039,8 @@ async function hear(text) {
       c.streaming = false;
       if (c.action === 'refresh') { refreshBoard(); refreshLeads(); refreshFlowdesk(); refreshInnolink(); refreshSites(); }
       if (c.action === 'reshoot') shootSites(false);
+      if (c.action === 'whatsapp') waWatch(true);
+      if (c.action === 'unzoom' && state.whatsapp.watching) waWatch(false);
       remember(c);
       return c;
     }
@@ -1000,6 +1052,18 @@ async function hear(text) {
   if (out.action === 'add_task') {
     out = { ...out, action: 'focus', panel: 'team', reply: await addFlowdeskTask(out) };
   }
+  if (out.action === 'whatsapp_open') {
+    waWatch(true);
+    const r = await waCmd({ cmd: 'open', name: out.chat || '' });
+    out = { action: 'whatsapp', reply: r.ok ? (out.reply || `Here's ${r.detail}.`) : `I can't find a chat called ${out.chat}, darling.` };
+  }
+  if (out.action === 'whatsapp_scroll' || out.action === 'whatsapp_list') {
+    waWatch(true);
+    await waCmd(out.action === 'whatsapp_list' ? { cmd: 'list' } : { cmd: 'scroll', dir: out.dir === 'up' ? 'up' : 'down' });
+    out = { action: 'whatsapp', reply: out.reply || 'There.' };
+  }
+  if (out.action === 'whatsapp') waWatch(true);
+  if (out.action === 'unzoom' && state.whatsapp.watching) waWatch(false);
   if (out.action === 'refresh') { refreshBoard(); refreshLeads(); refreshFlowdesk(); refreshInnolink(); refreshSites(); }
   if (out.action === 'reshoot') shootSites(false);
   const c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...out });
@@ -1083,6 +1147,7 @@ function startTtsWorker() {
         ttsWorker = w;
         // The "thinking" sounds, voiced once and kept.
         FILLERS.forEach((text, k) => { if (!fs.existsSync(path.join(TTS, `filler-${k}.mp3`))) voice(`filler-${k}`, text); });
+        setTimeout(() => warmVoice().catch(() => {}), 8000);
         continue;
       }
       const part = ttsParts.get(String(m.id));
@@ -1098,6 +1163,33 @@ function startTtsWorker() {
     for (const part of [...ttsParts.values()]) part.fail('the voice worker stopped');
     setTimeout(startTtsWorker, 5000);
   });
+}
+
+// Short sentences are kept once voiced (data/tts/cache), so "Watch this,
+// darling" or "Back to everything" play straight away the next time.
+const TTS_CACHE = path.join(TTS, 'cache');
+const cacheFile = (text) => path.join(TTS_CACHE, crypto.createHash('md5').update(VOICE + '|' + text.trim()).digest('hex') + '.mp3');
+const COMMON_LINES = ['Watch this, darling.', 'Hold my tentacles.', 'Ten out of ten, obviously.', 'Show-off mode, on.', 'Back to everything.', 'Up we go.', 'Down we go.',
+  'All your chats.', 'There.', 'Next one.', 'Going back one.', 'Let us celebrate.', 'Testing the alarm.', 'Going quiet.', 'I am back.', 'Reloading the screen.', 'Yes?'];
+let warmCount = 0;
+function synth(text) {
+  return new Promise(resolve => {
+    if (!ttsWorker) return resolve([]);
+    const sub = `warm${warmCount++}`, chunks = [];
+    const close = () => { clearTimeout(timer); ttsParts.delete(sub); resolve(chunks); };
+    const timer = setTimeout(close, 20000);
+    ttsParts.set(sub, { add: (c) => chunks.push(c), finish: close, fail: close });
+    ttsWorker.stdin.write(JSON.stringify({ id: sub, text, voice: VOICE }) + '\n');
+  });
+}
+// One at a time, so Microsoft's voice service doesn't push back.
+async function warmVoice() {
+  fs.mkdirSync(TTS_CACHE, { recursive: true });
+  for (const text of [...OPENERS.map(o => o.trim()), ...COMMON_LINES]) {
+    if (fs.existsSync(cacheFile(text))) continue;
+    const chunks = await synth(text);
+    if (chunks.length) fs.writeFileSync(cacheFile(text), Buffer.concat(chunks));
+  }
 }
 
 // An answer voiced a sentence at a time (say), in order, as one MP3 stream:
@@ -1159,9 +1251,15 @@ function voiceStream(id) {
       texts.push(text);
       const p = { chunks: [], sent: 0, done: false };
       parts.push(p);
+      const cached = cacheFile(text);
+      if (fs.existsSync(cached)) { p.chunks.push(fs.readFileSync(cached)); p.done = true; pump(); return; }
       if (!ttsWorker) { p.done = true; return; }
       const sub = `${key}.${parts.length}`;
-      const close = () => { if (p.done) return; p.done = true; clearTimeout(p.timer); ttsParts.delete(sub); pump(); };
+      const close = () => {
+        if (p.done) return; p.done = true; clearTimeout(p.timer); ttsParts.delete(sub);
+        if (p.chunks.length && text.length <= 80) { fs.mkdirSync(TTS_CACHE, { recursive: true }); fs.writeFile(cached, Buffer.concat(p.chunks), () => {}); }
+        pump();
+      };
       p.timer = setTimeout(close, 20000);   // a sentence that never comes is skipped
       ttsParts.set(sub, { add: (c) => { p.chunks.push(c); pump(); }, finish: close, fail: close });
       ttsWorker.stdin.write(JSON.stringify({ id: sub, text, voice: VOICE }) + '\n');
@@ -1185,8 +1283,10 @@ function sendAudio(res, file) {
 
 function speakToFile(c) {
   if (!c.reply) return;
-  voice(c.id, c.reply);
-  for (const f of safeList(TTS)) if (Number(f.split('.')[0]) < c.id - 50) fs.rm(path.join(TTS, f), () => {});
+  const opener = OPENERS.find(o => c.reply.startsWith(o));
+  if (opener) { const v = voiceStream(c.id); v.say(opener.trim()); v.say(c.reply.slice(opener.length)); v.end(); }
+  else voice(c.id, c.reply);
+  for (const f of safeList(TTS)) if (/^\d+\.(mp3|wav)$/.test(f) && Number(f.split('.')[0]) < c.id - 50) fs.rm(path.join(TTS, f), () => {});
   for (const k of ttsJobs.keys()) if (Number(k) < c.id - 50) ttsJobs.delete(k);
 }
 
@@ -1303,6 +1403,10 @@ const server = http.createServer(async (req, res) => {
       ff.on('close', () => res.end());
       req.on('close', () => ff.kill());
       return;
+    }
+    if (url.pathname === '/api/whatsapp/screen') {
+      if (!waScreen) return send(res, 404, 'Not yet', 'text/plain');
+      return send(res, 200, waScreen, 'image/jpeg');
     }
     if (url.pathname === '/api/commands') {
       const after = Number(url.searchParams.get('after') || nextCommandId - 1);
