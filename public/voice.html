@@ -90,7 +90,10 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const WAKE = /\b(hey |ok |okay )?(jarvis|jervis|javis|travis|charvis)\b/i;
+  // Speech recognition writes "Jarvis" many ways; any of them wakes her.
+  const WAKE = /\b(hey |ok |okay )?(jarvis|jarvis's|jervis|javis|travis|charvis|garvis|jarvas|jarves|jarvi|jarbas|harvis|jarvus|jarvish|chavis|davis|jarviz|jarvice|jaavis|jarv)\b[,.!?]?/i;
+  // After she answers, the next 20 seconds need no "Jarvis": a conversation.
+  let followUntil = 0, wakeInInterim = false;
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} };
 
   $('speakHere').checked = store('jarvis-speak-here') === '1';
@@ -150,6 +153,7 @@
     status('Thinking…');
     try {
       const c = await (await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+      followUntil = Date.now() + 20000 + Math.min(15000, String((c && c.reply) || '').split(' ').length * 350);
       // An answer that streamed to the TV is shown here once it's complete.
       if (c && c.id && c.reply && shown.indexOf(c.id) < 0) { shown.push(c.id); showLine(c); say(c.reply); }
       status(listening ? (always() ? 'Listening for "Jarvis"' : 'Listening…') : 'Tap and speak');
@@ -221,16 +225,20 @@
         if (!r.isFinal) { interim += t; continue; }
         $('interim').textContent = '';
         if (!always()) { send(t); continue; }
-        // Always listening: act on what follows "Jarvis", or on the next
-        // sentence after someone says just "Jarvis".
-        if (WAKE.test(t)) {
+        // Always listening: act on what follows "Jarvis" (even when the final
+        // words lost it), on the sentence after a lone "Jarvis", or on anything
+        // said in the 20 seconds after she answered.
+        const woke = WAKE.test(t) || wakeInInterim;
+        wakeInInterim = false;
+        const rest = t.replace(WAKE, ' ').trim();
+        if (woke) {
           chime();
-          const rest = t.replace(WAKE, ' ').trim();
           if (rest.length > 1) send(rest); else { wokeAt = Date.now(); status('Yes?'); }
-        } else if (Date.now() - wokeAt < 8000) { wokeAt = 0; send(t); }
+        } else if (Date.now() - wokeAt < 10000 || Date.now() < followUntil) { wokeAt = 0; if (rest.length > 1) send(rest); }
+        else if (rest.length > 1) { $('interim').textContent = 'Heard "' + rest + '" (say Jarvis first)'; setTimeout(() => { if (/say Jarvis first/.test($('interim').textContent)) $('interim').textContent = ''; }, 4000); }
       }
-      $('interim').textContent = interim;
-      if (WAKE.test(interim)) status('Listening to you…');
+      if (interim) $('interim').textContent = interim;
+      if (WAKE.test(interim)) { wakeInInterim = true; status('Listening to you…'); }
     };
     rec.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stop(); status('Microphone blocked. Allow it in the browser settings.'); }

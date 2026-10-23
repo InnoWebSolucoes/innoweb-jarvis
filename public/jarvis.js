@@ -1131,9 +1131,18 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     return true;
   }
   let playing = null;
-  function play(src, fallback, onStart, onEnd) {
+  function play(src, fallback, onStart, onEnd, retried) {
     const a = new Audio(src);
     if (onStart) a.addEventListener("playing", onStart);
+    let failed = false;
+    const fail = () => {
+      if (failed) return;
+      failed = true;
+      if (playing === a) playing = null;
+      if (!retried) setTimeout(() => play(src + (src.indexOf("?") < 0 ? "?" : "&") + "again=1", fallback, onStart, onEnd, true), 1200);
+      else if (fallback) fallback();
+    };
+    a.addEventListener("error", fail);
     const go = () => {
       playing = a;
       a.onended = () => {
@@ -1141,8 +1150,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         if (onEnd) onEnd();
       };
       const p = a.play();
-      if (p && p.catch) p.catch(fallback || (() => {
-      }));
+      if (p && p.catch) p.catch(fail);
     };
     const prev = playing;
     if (prev && !prev.paused && !prev.ended) prev.onended = () => {

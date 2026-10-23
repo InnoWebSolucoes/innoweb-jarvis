@@ -1013,14 +1013,23 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   // One sound at a time: the answer waits for "let me think" to finish. The
   // answer starts loading straight away (it streams while it's being voiced).
   let playing = null;
-  function play(src, fallback, onStart, onEnd) {
+  function play(src, fallback, onStart, onEnd, retried) {
     const a = new Audio(src);
     if (onStart) a.addEventListener('playing', onStart);
+    // A sound that breaks or won't start: fetch the finished file once more, then the fallback.
+    let failed = false;
+    const fail = () => {
+      if (failed) return; failed = true;
+      if (playing === a) playing = null;
+      if (!retried) setTimeout(() => play(src + (src.indexOf('?') < 0 ? '?' : '&') + 'again=1', fallback, onStart, onEnd, true), 1200);
+      else if (fallback) fallback();
+    };
+    a.addEventListener('error', fail);
     const go = () => {
       playing = a;
       a.onended = () => { if (playing === a) playing = null; if (onEnd) onEnd(); };
       const p = a.play();
-      if (p && p.catch) p.catch(fallback || (() => {}));
+      if (p && p.catch) p.catch(fail);
     };
     const prev = playing;
     if (prev && !prev.paused && !prev.ended) prev.onended = () => { if (playing === prev) playing = null; go(); };

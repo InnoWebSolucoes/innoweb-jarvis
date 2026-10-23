@@ -879,6 +879,7 @@ function rules(raw) {
   if (pending && /^(no|nope|cancel|stop|don t|dont|nao|não)\b/.test(t)) { pending = null; return { action: 'none', reply: 'Cancelled.' }; }
   const site = matchSite(t), panel = matchPanel(t);
   const waWords = /\b(whatsapp|whats app|what s app)\b/.test(t);
+  if (waWords && /\b(close|hide|get rid of|remove|exit|leave|turn off|stop showing|take (it |that )?off|put away|minimi[sz]e|go back|back to)\b/.test(t) && !/\b(chat list|all (the |my )?chats|back to (the |my )?chats)\b/.test(t)) return { action: 'unzoom', reply: 'Back to everything.' };
   if (state.whatsapp.ready && (state.whatsapp.watching || waWords)) {
     const dir = /\b(down|lower|below|newer|bottom)\b/.test(t) ? 'down' : /\b(up|higher|above|older|top)\b/.test(t) ? 'up' : null;
     if (dir && /\b(scroll|go|move|swipe|page|further|more|keep going|slide)\b/.test(t) && !/\b(pull up|bring up|open up)\b/.test(t)) {
@@ -1060,13 +1061,19 @@ function flirt() { return OPENERS[Math.floor(Math.random() * OPENERS.length)]; }
 // something she said in the last minute and a half.
 const spoken = [];
 const wordsOf = (x) => norm(x).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w => w.length > 2);
+const spokenText = [];
 function isEcho(heard) {
+  // Something she said in the last 30 seconds, word for word ("down we go").
+  const h = norm(heard).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (h.split(' ').length >= 2 && spokenText.some(r => Date.now() - r.at < 30000 && r.text.includes(h))) return true;
   const words = wordsOf(heard);
   if (words.length < 4) return false;
   if (/^(hey |ok |okay )?(jarvis |honey |babe )?(please )?(open|scroll|show|pull|go|search|find|close|zoom|next|back|click|select|tap|check|read|give|tell|add)\b/i.test(norm(heard))) return false;
   return spoken.some(r => Date.now() - r.at < 30000 && words.filter(w => r.words.has(w)).length / words.length >= 0.75);
 }
 function remember(c) {
+  spokenText.push({ at: Date.now(), text: norm(c.reply).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim() });
+  if (spokenText.length > 6) spokenText.shift();
   recent.push({ heard: c.heard, reply: c.reply });
   if (recent.length > 4) recent.shift();
   spoken.push({ at: Date.now(), words: new Set(wordsOf(c.reply)) });
@@ -1335,8 +1342,16 @@ function voiceStream(id) {
       if (fs.existsSync(cached)) { p.chunks.push(fs.readFileSync(cached)); p.done = true; pump(); return; }
       if (!ttsWorker) { p.done = true; return; }
       const sub = `${key}.${parts.length}`;
+      let tries = 0;
       const close = () => {
-        if (p.done) return; p.done = true; clearTimeout(p.timer); ttsParts.delete(sub);
+        if (p.done) return;
+        if (!p.chunks.length && tries++ < 1 && ttsWorker) {   // nothing came: once more
+          clearTimeout(p.timer);
+          p.timer = setTimeout(close, 15000);
+          ttsWorker.stdin.write(JSON.stringify({ id: sub, text, voice: VOICE }) + '\n');
+          return;
+        }
+        p.done = true; clearTimeout(p.timer); ttsParts.delete(sub);
         if (p.chunks.length && text.length <= 80) { fs.mkdirSync(TTS_CACHE, { recursive: true }); fs.writeFile(cached, Buffer.concat(p.chunks), () => {}); }
         pump();
       };
