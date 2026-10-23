@@ -731,7 +731,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       }
       s.vx += (vx - s.vx) * Math.min(1, dt * 4);
       s.vy += (vy - s.vy) * Math.min(1, dt * 4);
-      s.phase += dt * (s.moving ? 5.5 : 2.2) * (s.happy > 0 ? 2.2 : 1);
+      s.phase += dt * (s.moving ? 5.5 : 2.2) * (s.happy > 0 ? 2.2 : 1) * (s.frantic ? 3 : 1);
       if (s.happy > 0) s.happy -= dt;
       if (t - lastDraw < 32) return;   // 30 frames a second is plenty, and easy on the TV
       lastDraw = t;
@@ -739,14 +739,15 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const trailX = s.moving ? (-s.vx / sp) * 0.45 : 0, trailY = s.moving ? (-s.vy / sp) * 0.35 : 0;
       for (let i = 0; i < ARMS; i++) { const d = armShapes(i, trailX, trailY); unders[i].setAttribute('d', d[0]); tops[i].setAttribute('d', d[1]); }
       // Eyes follow the way it's going.
-      const lx = s.moving ? (s.vx / sp) * 2.6 : Math.sin(t / 1400) * 1.5, ly = s.moving ? (s.vy / sp) * 2 : 0;
+      let lx = s.moving ? (s.vx / sp) * 2.6 : Math.sin(t / 1400) * 1.5, ly = s.moving ? (s.vy / sp) * 2 : 0;
+      if (s.frantic) { lx += rand(-2.2, 2.2); ly += rand(-2.2, 2.2); }   // eyes darting everywhere
       pupils[0].setAttribute('cx', -16 + lx); pupils[0].setAttribute('cy', -14 + ly);
       pupils[1].setAttribute('cx', 16 + lx); pupils[1].setAttribute('cy', -14 + ly);
       glints[0].setAttribute('cx', -17.2 + lx); glints[1].setAttribute('cx', 14.8 + lx);
       // Squish: wide and short as it squeezes, tall and thin as it shoots forward.
       const pulse = Math.sin(s.phase * 1.1);
       const sx = 1 + (s.moving ? 0.1 : 0.04) * pulse, sy = 1 - (s.moving ? 0.09 : 0.035) * pulse;
-      const tilt = Math.max(-16, Math.min(16, s.vx * 0.05));
+      const tilt = s.frantic ? Math.max(-45, Math.min(45, s.vx * 0.03)) : Math.max(-16, Math.min(16, s.vx * 0.05));
       const jx = s.shake ? rand(-s.shake, s.shake) : 0, jy = s.shake ? rand(-s.shake, s.shake) : 0;
       const tr = `translate(${(s.x + jx).toFixed(1)}px, ${(s.y - s.hop + jy).toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
       el.style.webkitTransform = tr; el.style.transform = tr;
@@ -760,6 +761,21 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         return new Promise((done) => { s.target = { x, y, speed, abort, done }; });
       },
       face() {},
+      // One big backflip: up, a full turn backwards, and a squishy landing.
+      flip() {
+        s.happy = 2;
+        const t0 = performance.now(), dur = 1100;
+        return new Promise((r) => {
+          const step = (t) => {
+            const k = Math.min(1, (t - t0) / dur);
+            const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+            s.hop = Math.sin(k * Math.PI) * 110;
+            s.spin = -360 * e;
+            if (k < 1) requestAnimationFrame(step); else { s.hop = 0; s.spin = 0; r(); }
+          };
+          requestAnimationFrame(step);
+        });
+      },
       async hop(times = 3, spin = true) {
         s.happy = times * 0.6 + 0.5;
         for (let n = 0; n < times; n++) {
@@ -841,6 +857,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     setTimeout(() => banner.classList.remove('show'), ms);
   }
 
+  // "Jarvis, do a backflip": wherever the octopus is, a flip and a little confetti on landing.
+  function backflip() {
+    spider.flip().then(() => { const r = spider.state; fx.confetti(r.x, r.y, 70, 0.7); });
+  }
+
   async function celebrate(e) {
     unzoom();
     const key = panels[e.panel] ? e.panel : 'ach';
@@ -875,12 +896,27 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     panel.classList.add('danger');
     sound.siren(8);
     showBanner('ALERT', e.text, true, 9000);
+    // Panic: it tears around the whole screen, into every corner, shaking and
+    // spinning, flipping now and then, for as long as the siren wails.
+    const st = spider.state;
+    st.shake = 10;
+    st.frantic = true;
+    const corners = [[70, 70], [SW - 70, 70], [70, H - 70], [SW - 70, H - 70]];
+    const until = performance.now() + 8000;
+    for (let n = 0; performance.now() < until; n++) {
+      const pt = n % 3 === 0 ? corners[Math.floor(Math.random() * 4)] : [rand(60, SW - 60), rand(60, H - 60)];
+      st.spin = rand(-40, 40);
+      await spider.walkTo(pt[0], pt[1], rand(2200, 3600));
+      if (n % 5 === 4) await spider.flip();
+    }
+    st.frantic = false;
+    st.spin = 0;
+    // Then it goes to the panel with the problem, still trembling.
     const pt = spotOn(key, true);
-    await spider.walkTo(pt.x, pt.y, 900);
-    spider.face(180);
-    spider.state.shake = 4;
-    await sleep(7000);
-    spider.state.shake = 0;
+    st.shake = 4;
+    await spider.walkTo(pt.x, pt.y, 1400);
+    await sleep(1500);
+    st.shake = 0;
     alarmEl.classList.remove('on');
     spider.el.classList.remove('angry');
     setTimeout(() => panel.classList.remove('danger'), 20000);
@@ -947,11 +983,26 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       u.lang = 'en-GB';
       window.speechSynthesis.speak(u);
     };
-    try {
-      const a = new Audio('/api/tts/' + c.id);
+    // The words stay up while she speaks and go a moment after she stops.
+    const hold = () => clearTimeout(sayTimer);
+    const release = () => { clearTimeout(sayTimer); sayTimer = setTimeout(() => { $('say').className = ''; }, 2500); };
+    try { play('/api/tts/' + c.id, fallback, hold, release); } catch (err) { fallback(); }
+  }
+  // One sound at a time: the answer waits for "let me think" to finish. The
+  // answer starts loading straight away (it streams while it's being voiced).
+  let playing = null;
+  function play(src, fallback, onStart, onEnd) {
+    const a = new Audio(src);
+    if (onStart) a.addEventListener('playing', onStart);
+    const go = () => {
+      playing = a;
+      a.onended = () => { if (playing === a) playing = null; if (onEnd) onEnd(); };
       const p = a.play();
-      if (p && p.catch) p.catch(fallback);
-    } catch (err) { fallback(); }
+      if (p && p.catch) p.catch(fallback || (() => {}));
+    };
+    const prev = playing;
+    if (prev && !prev.paused && !prev.ended) prev.onended = () => { if (playing === prev) playing = null; go(); };
+    else go();
   }
   function runCommand(c) {
     if (c.action === 'announce') {
@@ -961,12 +1012,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       return;
     }
     if (c.action === 'thinking') {
+      if (c.filler && !muted && S && S.board && S.board.tvSpeaks) { try { play('/api/tts/' + c.filler); } catch (err) { /* no sound */ } }
       showSay(c.heard, 'Thinking');
       $('say').className = 'show thinking';
       return;
     }
     if (c.action === 'unmute') muted = false;
-    showSay(c.heard, c.reply);
+    if (c.streaming) liveCommand = c.id;   // its words keep coming: follow them
+    showSay(c.heard, c.reply || '…');
     speak(c);
     switch (c.action) {
       case 'zoom': zoom(c.panel); break;
@@ -978,17 +1031,26 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       case 'next': rotator.next(); break;
       case 'previous': rotator.previous(); break;
       case 'show_site': rotator.show(c.site); zoom('site', 60); break;
+      case 'backflip': backflip(); break;
       case 'celebrate': queue.push({ level: 'win', panel: 'ach', big: true, title: 'INNOWEB', text: c.reply }); break;
       case 'alarm': queue.push({ level: 'error', panel: 'log', text: 'Alarm test' }); break;
       case 'mute': muted = true; break;
     }
   }
+  let polling = false, liveCommand = null;
   async function pollCommands() {
+    if (polling) return;
+    polling = true;
     try {
-      const r = await getJson('/api/commands' + (lastCommand == null ? '' : '?after=' + lastCommand));
+      const r = await getJson('/api/commands' + (lastCommand == null ? '' : '?after=' + lastCommand) + (liveCommand ? (lastCommand == null ? '?' : '&') + 'live=' + liveCommand : ''));
+      if (r.live && r.live.id === liveCommand) {
+        if (r.live.reply) $('say-reply').textContent = r.live.reply;
+        if (r.live.done) liveCommand = null;
+      }
       if (lastCommand == null) { lastCommand = r.last; return; }
       for (const c of r.commands) { lastCommand = Math.max(lastCommand, c.id); runCommand(c); }
     } catch (err) { /* the state poll reports a dead server */ }
+    finally { polling = false; }
   }
 
   // ------------------------------------------------------------ polling
@@ -1042,7 +1104,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   setInterval(tickClock, 1000);
   poll();
   setInterval(poll, POLL_MS);
-  setInterval(pollCommands, 1000);
+  setInterval(pollCommands, 500);
   show();
 
   // A clean reload every 6 hours keeps a browser that runs day and night fresh.

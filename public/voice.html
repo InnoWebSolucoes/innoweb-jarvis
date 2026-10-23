@@ -115,7 +115,8 @@
   if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
   // On the Jarvis PC this page speaks; on a phone the TV speaks instead (tick to hear it here too).
   const onPC = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-  if (store('jarvis-speak-here') === '1' || (onPC && store('jarvis-speak-here') !== '0')) $('speakHere').checked = true;
+  // The TV speaks every answer, so by default this page stays quiet (two voices, and the mic hearing the TV).
+  if (store('jarvis-speak-here') === '1') $('speakHere').checked = true;
 
   let speaking = false;
   function say(text) {
@@ -148,7 +149,10 @@
     if (!text) return;
     status('Thinking…');
     try {
-      await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const c = await (await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+      // An answer that streamed to the TV is shown here once it's complete.
+      if (c && c.id && c.reply && shown.indexOf(c.id) < 0) { shown.push(c.id); showLine(c); say(c.reply); }
+      status(listening ? (always() ? 'Listening for "Jarvis"' : 'Listening…') : 'Tap and speak');
     } catch (err) {
       say('I cannot reach the Jarvis server.');
       status('The Jarvis server is not answering');
@@ -158,6 +162,7 @@
 
   // Answers and announcements, wherever they came from, arrive here.
   let last = null;
+  const shown = [];
   function showLine(c) {
     const li = document.createElement('li');
     li.innerHTML = '<div class="you"></div><div class="jarvis"></div>';
@@ -173,7 +178,8 @@
       for (const c of r.commands) {
         last = Math.max(last, c.id);
         if (c.action === 'thinking') { status('Thinking…'); continue; }
-        if (!c.reply) continue;
+        if (c.streaming || !c.reply || shown.indexOf(c.id) >= 0) continue;
+        shown.push(c.id);
         showLine(c);
         say(c.reply);
         status(listening ? (always() ? 'Listening for "Jarvis"' : 'Listening…') : 'Tap and speak');

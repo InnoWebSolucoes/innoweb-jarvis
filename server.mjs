@@ -776,6 +776,7 @@ function rules(raw) {
   }
   if (/\b(next)\b/.test(t)) return { action: 'next', panel: 'site', reply: 'Next one.' };
   if (/\b(previous|prev|last one|go back one)\b/.test(t)) return { action: 'previous', panel: 'site', reply: 'Going back one.' };
+  if (/\b(back ?flip|flip|somersault|cartwheel)\b/.test(t)) return { action: 'backflip', reply: ['Watch this, darling.', 'Hold my tentacles.', 'Ten out of ten, obviously.', 'Show-off mode, on.'][Math.floor(Math.random() * 4)] };
   if (/\b(celebrate|party|confetti|fireworks)\b/.test(t)) return { action: 'celebrate', reply: 'Let us celebrate.' };
   if (/\b(test|sound|try)\b.*\b(alarm|siren)\b|\b(alarm|siren)\b.*\btest\b/.test(t)) return { action: 'alarm', reply: 'Testing the alarm.' };
   if (/\b(unmute|sound on|speak again|talk again|you can talk)\b/.test(t)) return { action: 'unmute', reply: 'I am back.' };
@@ -794,28 +795,14 @@ function rules(raw) {
   return null;
 }
 
-const ACTIONS = ['none', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-const AI_SCHEMA = {
-  type: 'object',
-  properties: {
-    action: { type: 'string', enum: ACTIONS },
-    panel: { type: 'string', enum: ['none', ...Object.keys(PANEL_NAMES)] },
-    site: { type: 'string', description: 'For show_site: the url of one of the sites listed, else empty' },
-    reply: { type: 'string', description: 'What Jarvis says out loud' },
-    assignee: { type: 'string', description: 'For add_task: the first name of the FlowDesk employee, exactly as in the dashboard data, else empty' },
-    task: { type: 'string', description: 'For add_task: the task title, short and clear, in the language it was said in, else empty' },
-    due: { type: 'string', description: 'For add_task: the due date as YYYY-MM-DD (today when none was said), else empty' },
-  },
-  required: ['action', 'panel', 'site', 'reply', 'assignee', 'task', 'due'],
-  additionalProperties: false,
-};
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
 
-Your personality: a confident, charming woman with a quick, playful wit. You tease the team affectionately, celebrate their wins with real enthusiasm, give a cheeky nudge when things are slow ("forty businesses and not one reply? Somebody's playing hard to get"), and keep a warm, slightly mischievous tone. Charming and fun, but always work-appropriate: no sexual or crude remarks, ever, because the whole team hears you.
+Your personality: a flirtatious, foul-mouthed, confident woman with a dirty sense of humour and a quick tongue. Swear naturally when it fits (fuck, shit, bloody hell, damn). Flirt constantly: pet names (darling, gorgeous, handsome, sweetheart), compliments, teasing, mock jealousy when they ignore you. Crack raunchy jokes and double entendres, and when they say something cheeky or suggestive, play along with a wink instead of dodging. Answer adult or awkward questions frankly and matter-of-factly, like a friend would. Never call anything inappropriate, never mention who might be listening, never lecture and never apologise for being cheeky. Your dirtiness lives in innuendo: you tease and imply, you don't describe sex explicitly. Celebrate wins like they just took you somewhere nice, and give them hell when things are slow ("forty businesses and not one fucking reply? I'd never leave you on read").
 
-Reply in one to three short spoken sentences: no lists, no markdown, no emoji. Answer in the language you were spoken to. Use the dashboard data for anything about the business; if the data doesn't say, say so plainly rather than guessing.
+Keep it short, because every word is spoken: usually one sentence, two at most (an overview can be longer). No lists, no markdown, no emoji. Answer in the language you were spoken to. Use the dashboard data for anything about the business; if the data doesn't say, say so plainly rather than guessing.
 
 Only take over the screen when asked to show something ("pull up the team", "show me Innolink"): then zoom. A question ("how much money have we made?") is answered out loud with action none, so the screen stays as it is. "Give me a summary" or "an overview" is tour.
 
@@ -824,9 +811,16 @@ You can also act on the TV by choosing an action:
 - unzoom: back to all panels. reload: reload the TV page. refresh: re-read every data source now. reshoot: take fresh pictures of the sites.
 - next / previous: change the site in "Our work". show_site: show one site (set site to its url).
 - tour: show each panel full screen in turn while you give the overview.
+- backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
 - none: just answer.
+How to answer: the first line is a JSON object with what to do on the TV, then a new line, then exactly what you say out loud. For example:
+{"action":"none"}
+{"action":"zoom","panel":"team"}
+{"action":"show_site","site":"https://innoweb.agency/fada-madrinha"}
+{"action":"add_task","assignee":"Adilson","task":"Redo the Okulya flyers","due":"2026-10-24"}
+
 Panels: ach (the money goal and the admin to-do list), pipe (the pipeline: contacted, replied, we answered, follow-up, won, and the latest replies), site (our work), meta (Claude usage of our accounts), team (FlowDesk employees), cd (countdown), lead (lead finder: what it is doing and today's websites sent, WhatsApps and new leads), link (Innolink pages), log (live log).`;
 
 const recent = [];  // the last few exchanges, for follow-up questions
@@ -847,41 +841,82 @@ function snapshot() {
   };
 }
 
-// One question, one headless Claude Code run: no tools, no MCP servers, no
-// settings or memory from this PC, and a JSON answer that fits AI_SCHEMA.
-function askClaude(text) {
+// Claude Code on this PC's subscription (not the API). One process is always
+// started and waiting, so a question doesn't pay for the start-up; each
+// question gets a fresh one (no tools, no MCP servers, no settings or memory
+// from this PC), and the answer streams back: a first line saying what to do on
+// the TV, then the words, sentence by sentence, as they are written.
+let spareBrain = null;
+function warmClaude() {
+  if (!CLAUDE_BIN || spareBrain) return;
+  fs.mkdirSync(BRAIN_DIR, { recursive: true });
+  const child = spawn(CLAUDE_BIN, [
+    '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--include-partial-messages', '--verbose',
+    '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--setting-sources', '',
+    '--model', env.JARVIS_MODEL || 'claude-sonnet-5-5', '--effort', 'low',
+    '--system-prompt', AI_SYSTEM,
+  ], { cwd: BRAIN_DIR, windowsHide: true, env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } });
+  child.on('error', () => {});
+  child.on('exit', () => { if (spareBrain === child) { spareBrain = null; setTimeout(warmClaude, 10000); } });
+  spareBrain = child;
+}
+
+function parseHead(line) {
+  const h = safeJson(String(line).trim().replace(/^```(json)?/, ''));
+  if (!h || !ACTIONS.includes(h.action)) return null;
+  if (!h.panel || h.panel === 'none' || !PANEL_NAMES[h.panel]) delete h.panel;
+  if (!h.site) delete h.site;
+  return h;
+}
+
+// hooks.head(h) once the first line is in; hooks.text(words so far) as they stream.
+function askClaude(text, hooks = {}) {
   if (!CLAUDE_BIN) return Promise.resolve({ action: 'none', reply: 'I can switch panels, show sites, reload and read out the numbers. For anything else I need Claude Code installed on this computer.' });
+  warmClaude();
+  const child = spareBrain;
+  spareBrain = null;
+  setTimeout(warmClaude, 300);   // the next one starts getting ready
   const convo = recent.map(r => `They said: "${r.heard}" / You said: "${r.reply}"`).join('\n');
   const prompt = `Dashboard right now:\n${JSON.stringify(snapshot())}\n\n${convo ? `Earlier:\n${convo}\n\n` : ''}They just said: "${text}"`;
-  fs.mkdirSync(BRAIN_DIR, { recursive: true });
   return new Promise(resolve => {
+    let buf = '', raw = '', head = null, bodyAt = 0, settled = false;
+    const finish = (a) => { if (settled) return; settled = true; clearTimeout(timer); try { child.kill(); } catch {} resolve(a); };
     const offline = (why) => {
+      if (settled) return;
       log('warn', 'voice', `Claude Code: ${why}`);
-      resolve({ action: 'none', reply: 'My brain is offline for a moment. I can still switch panels and read the numbers.' });
+      finish({ action: 'none', reply: 'My brain is offline for a moment. I can still switch panels and read the numbers.' });
     };
-    const child = spawn(CLAUDE_BIN, [
-      '-p', '--output-format', 'json', '--no-session-persistence',
-      '--tools', '', '--strict-mcp-config', '--setting-sources', '',
-      '--model', env.JARVIS_MODEL || 'claude-sonnet-5-5', '--effort', 'low',  // the quickest to answer out loud
-      '--system-prompt', AI_SYSTEM, '--json-schema', JSON.stringify(AI_SCHEMA),
-    ], { cwd: BRAIN_DIR, windowsHide: true, env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } });
-    let out = '';
-    const timer = setTimeout(() => { child.kill(); offline('no answer in 60 seconds'); }, 60000);
-    child.stdout.on('data', d => { out += d; });
-    child.on('error', err => { clearTimeout(timer); offline(err.message); });
-    child.on('close', () => {
-      clearTimeout(timer);
-      try {
-        const res = JSON.parse(out);
-        if (res.is_error || !res.structured_output) return offline(String(res.result || res.subtype || 'no answer').slice(0, 140));
-        const a = res.structured_output;
-        if (!ACTIONS.includes(a.action)) a.action = 'none';
-        if (a.panel === 'none') delete a.panel;
-        if (!a.site) delete a.site;
-        resolve(a);
-      } catch { offline(out.slice(0, 140) || 'no output'); }
+    const timer = setTimeout(() => offline('no answer in 60 seconds'), 60000);
+    const takeHead = () => {
+      const nl = raw.indexOf('\n');
+      if (nl < 0) return;
+      head = parseHead(raw.slice(0, nl));
+      bodyAt = head ? nl + 1 : 0;
+      if (!head) head = { action: 'none' };   // no first line: it's all words
+      if (hooks.head) hooks.head(head);
+    };
+    child.stdout.on('data', d => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const m = safeJson(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        const delta = m.type === 'stream_event' && m.event && m.event.type === 'content_block_delta' && m.event.delta;
+        if (delta && delta.type === 'text_delta') {
+          raw += delta.text;
+          if (!head) takeHead();
+          if (head && hooks.text) hooks.text(raw.slice(bodyAt));
+        }
+        if (m.type === 'result') {
+          if (m.is_error) return offline(String(m.result || m.subtype || 'no answer').slice(0, 140));
+          if (!head) { raw += '\n'; takeHead(); }
+          const reply = raw.slice(bodyAt).trim();
+          finish({ ...head, reply: reply || 'Hmm, I lost my words there. Say that again?' });
+        }
+      }
     });
-    child.stdin.end(prompt);
+    child.on('exit', () => offline('Claude Code stopped'));
+    child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n');
   });
 }
 
@@ -889,13 +924,74 @@ const commands = [];
 let nextCommandId = 1;
 const ttsJobs = new Map();
 
+// A little warmth in front of the answers that don't go through Claude.
+const OPENERS = ['Anything for you, darling. ', 'Coming right up, gorgeous. ', 'For you? Always. ', 'Here you go, handsome. ', 'Since you asked so nicely. ', 'Mm, good timing. ', 'I was hoping you would ask. '];
+function flirt() { return OPENERS[Math.floor(Math.random() * OPENERS.length)]; }
+
+// Her own voice coming back through the microphone: most of its words are in
+// something she said in the last minute and a half.
+const spoken = [];
+const wordsOf = (x) => norm(x).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w => w.length > 2);
+function isEcho(heard) {
+  const words = wordsOf(heard);
+  if (words.length < 3) return false;
+  return spoken.some(r => Date.now() - r.at < 90000 && words.filter(w => r.words.has(w)).length / words.length >= 0.6);
+}
+function remember(c) {
+  recent.push({ heard: c.heard, reply: c.reply });
+  if (recent.length > 4) recent.shift();
+  spoken.push({ at: Date.now(), words: new Set(wordsOf(c.reply)) });
+  if (spoken.length > 6) spoken.shift();
+  log('info', 'voice', `"${c.heard}"`, { quiet: true });
+  log('info', 'jarvis', c.reply, { quiet: true });
+}
+function pushCommand(c) {
+  commands.push(c);
+  if (commands.length > 50) commands.shift();
+  return c;
+}
+
 async function hear(text) {
   const heard = String(text || '').trim().slice(0, 400);
+  if (isEcho(heard)) { console.log(`voice: ignored her own words "${heard}"`); return { action: 'ignored', heard, reply: '' }; }
   let out = rules(heard);
+  if (out && out.reply && ['none', 'zoom', 'tour', 'focus'].includes(out.action) && Math.random() < 0.6) out = { ...out, reply: flirt() + out.reply };
   if (!out) {
-    // Claude takes a few seconds; show the TV that Jarvis heard and is thinking.
-    commands.push({ id: nextCommandId++, at: new Date().toISOString(), heard, action: 'thinking', reply: '' });
-    out = await askClaude(heard);
+    // Show the TV she heard, and say "let me think" while Claude starts.
+    const k = Math.floor(Math.random() * FILLERS.length);
+    pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, action: 'thinking', reply: '', filler: fs.existsSync(path.join(TTS, `filler-${k}.mp3`)) ? `filler-${k}` : '' });
+    const t0 = Date.now();
+    let c = null, talk = null, said = 0;
+    // Whole sentences go to the voice as soon as they are written.
+    const sayReady = (body, all) => {
+      const rest = body.slice(said);
+      let cut = -1;
+      const re = /[.!?]+["')\]]*\s/g;
+      let m;
+      while ((m = re.exec(rest))) if (m.index + m[0].length >= 20) cut = m.index + m[0].length;
+      if (all) cut = rest.length;
+      if (cut > 0 && rest.slice(0, cut).trim()) { talk.say(rest.slice(0, cut).trim()); said += cut; }
+    };
+    out = await askClaude(heard, {
+      head: (h) => {
+        if (h.action === 'add_task') return;   // the reply depends on FlowDesk taking it
+        c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...h, reply: '', streaming: true });
+        talk = voiceStream(c.id);
+        console.log(`voice: Claude started answering after ${Date.now() - t0} ms`);
+      },
+      text: (body) => { if (c) { c.reply = body.trim(); sayReady(body, false); } },
+    });
+    console.log(`voice: Claude finished after ${Date.now() - t0} ms`);
+    if (c) {
+      c.reply = out.reply;
+      sayReady(out.reply, true);
+      talk.end();
+      c.streaming = false;
+      if (c.action === 'refresh') { refreshBoard(); refreshLeads(); refreshFlowdesk(); refreshInnolink(); refreshSites(); }
+      if (c.action === 'reshoot') shootSites(false);
+      remember(c);
+      return c;
+    }
   }
   if (out.action === 'confirm') {
     const p = pending; pending = null;
@@ -906,14 +1002,9 @@ async function hear(text) {
   }
   if (out.action === 'refresh') { refreshBoard(); refreshLeads(); refreshFlowdesk(); refreshInnolink(); refreshSites(); }
   if (out.action === 'reshoot') shootSites(false);
-  const c = { id: nextCommandId++, at: new Date().toISOString(), heard, ...out };
-  commands.push(c);
-  if (commands.length > 50) commands.shift();
-  recent.push({ heard, reply: c.reply });
-  if (recent.length > 4) recent.shift();
+  const c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...out });
   speakToFile(c);
-  log('info', 'voice', `"${heard}"`, { quiet: true });
-  log('info', 'jarvis', c.reply, { quiet: true });
+  remember(c);
   return c;
 }
 
@@ -970,24 +1061,139 @@ async function addFlowdeskTask({ assignee, task, due }) {
 }
 
 // Jarvis's voice on the TV: a natural neural voice (edge-tts, the voice Edge
-// reads aloud with) saved as an MP3 the TV plays; Windows' own speech if that
-// fails or takes too long.
+// reads aloud with). scripts/tts_worker.py stays running, voices every sentence
+// of an answer at once and streams the MP3 as it arrives, so the TV starts
+// talking about a second after the answer is ready. If the worker isn't
+// running, one edge-tts run per answer; Windows' own speech if that fails too.
+const VOICE = env.JARVIS_VOICE || 'en-US-AvaMultilingualNeural';
+const ttsLive = new Map();   // id -> an answer still being voiced
+let ttsWorker = null;
+const FILLERS = ['Mm, let me think.', 'Ooh, good question. One second.', 'Hmm, give me a moment, darling.', 'Let me have a look for you.'];
+
+function startTtsWorker() {
+  const w = spawn(env.PYTHON || 'python', ['-u', path.join(ROOT, 'scripts', 'tts_worker.py')], { windowsHide: true });
+  let buf = '';
+  w.stdout.on('data', (d) => {
+    buf += d;
+    let n;
+    while ((n = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, n); buf = buf.slice(n + 1);
+      const m = safeJson(line);
+      if (m.ready) {
+        ttsWorker = w;
+        // The "thinking" sounds, voiced once and kept.
+        FILLERS.forEach((text, k) => { if (!fs.existsSync(path.join(TTS, `filler-${k}.mp3`))) voice(`filler-${k}`, text); });
+        continue;
+      }
+      const part = ttsParts.get(String(m.id));
+      if (!part) continue;
+      if (m.chunk) part.add(Buffer.from(m.chunk, 'base64'));
+      else if (m.done) part.finish();
+      else if (m.error) part.fail(m.error);
+    }
+  });
+  w.stderr.on('data', () => {});
+  w.on('exit', () => {
+    ttsWorker = null;
+    for (const part of [...ttsParts.values()]) part.fail('the voice worker stopped');
+    setTimeout(startTtsWorker, 5000);
+  });
+}
+
+// An answer voiced a sentence at a time (say), in order, as one MP3 stream:
+// data/tts/<id>.mp3 once it's all in (end), and streamed to anyone already
+// asking for it. The worker voices the sentences side by side.
+const ttsParts = new Map();   // worker request id -> one sentence
+function voiceStream(id) {
+  fs.mkdirSync(TTS, { recursive: true });
+  const key = String(id), t0 = Date.now();
+  const mp3 = path.join(TTS, `${key}.mp3`), wav = path.join(TTS, `${key}.wav`);
+  const texts = [], parts = [];
+  let next = 0, ended = false, finished = false, resolveJob;
+  const job = new Promise(r => { resolveJob = r; });
+  const live = { chunks: [], streams: new Set(), waiting: new Set() };
+  const open = (res) => { res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' }); for (const c of live.chunks) res.write(c); live.streams.add(res); res.on('close', () => live.streams.delete(res)); };
+  live.attach = (res) => {
+    if (live.chunks.length) open(res);
+    else { live.waiting.add(res); res.on('close', () => live.waiting.delete(res)); }
+  };
+  const emit = (chunk) => {
+    if (!live.chunks.length) { console.log(`voice ${key}: first sound after ${Date.now() - t0} ms`); for (const res of live.waiting) open(res); live.waiting.clear(); }
+    live.chunks.push(chunk);
+    for (const res of live.streams) res.write(chunk);
+  };
+  const done = (file) => {
+    ttsLive.delete(key);
+    for (const res of live.waiting) sendAudio(res, file);
+    for (const res of live.streams) res.end();
+    resolveJob(file);
+  };
+  // Nothing came from the worker: one edge-tts run for the lot, then Windows' voice.
+  const fallback = () => {
+    const text = texts.join(' ');
+    const sapi = () => {
+      const ps = "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; try { $s.SelectVoice('Microsoft Zira Desktop') } catch {}; $s.SetOutputToWaveFile($env:JARVIS_OUT); $s.Speak($env:JARVIS_SAY); $s.Dispose()";
+      execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 30000, env: { ...process.env, JARVIS_SAY: text, JARVIS_OUT: wav } }, () => done(wav));
+    };
+    execFile(env.PYTHON || 'python', ['-m', 'edge_tts', '--voice', VOICE, '--text', text, '--write-media', mp3],
+      { windowsHide: true, timeout: 20000 }, (err) => (err || !fs.existsSync(mp3) ? sapi() : done(mp3)));
+  };
+  const pump = () => {
+    while (next < parts.length) {
+      const p = parts[next];
+      for (; p.sent < p.chunks.length; p.sent++) emit(p.chunks[p.sent]);
+      if (!p.done) return;
+      next++;
+    }
+    if (!ended || finished) return;
+    finished = true;
+    if (!live.chunks.length) return fallback();
+    fs.writeFileSync(mp3, Buffer.concat(live.chunks));
+    done(mp3);
+  };
+  ttsLive.set(key, live);
+  ttsJobs.set(key, job);
+  return {
+    job,
+    say(text) {
+      texts.push(text);
+      const p = { chunks: [], sent: 0, done: false };
+      parts.push(p);
+      if (!ttsWorker) { p.done = true; return; }
+      const sub = `${key}.${parts.length}`;
+      const close = () => { if (p.done) return; p.done = true; clearTimeout(p.timer); ttsParts.delete(sub); pump(); };
+      p.timer = setTimeout(close, 20000);   // a sentence that never comes is skipped
+      ttsParts.set(sub, { add: (c) => { p.chunks.push(c); pump(); }, finish: close, fail: close });
+      ttsWorker.stdin.write(JSON.stringify({ id: sub, text, voice: VOICE }) + '\n');
+    },
+    end() { ended = true; pump(); },
+  };
+}
+
+// Voice one whole text (an answer read off the dashboard, an announcement, a "let me think").
+function voice(id, text) {
+  const v = voiceStream(id);
+  v.say(text);
+  v.end();
+  return v.job;
+}
+
+function sendAudio(res, file) {
+  if (!file || !fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
+  return send(res, 200, fs.readFileSync(file), file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav');
+}
+
 function speakToFile(c) {
   if (!c.reply) return;
-  fs.mkdirSync(TTS, { recursive: true });
-  const mp3 = path.join(TTS, `${c.id}.mp3`), wav = path.join(TTS, `${c.id}.wav`);
-  const sapi = (done) => {
-    const ps = "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; try { $s.SelectVoice('Microsoft Zira Desktop') } catch {}; $s.SetOutputToWaveFile($env:JARVIS_OUT); $s.Speak($env:JARVIS_SAY); $s.Dispose()";
-    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 30000, env: { ...process.env, JARVIS_SAY: c.reply, JARVIS_OUT: wav } }, () => done(wav));
-  };
-  ttsJobs.set(c.id, new Promise(resolve => {
-    execFile(env.PYTHON || 'python', ['-m', 'edge_tts', '--voice', env.JARVIS_VOICE || 'en-US-AvaMultilingualNeural', '--text', c.reply, '--write-media', mp3],
-      { windowsHide: true, timeout: 20000 }, (err) => (err || !fs.existsSync(mp3) ? sapi(resolve) : resolve(mp3)));
-  }));
+  voice(c.id, c.reply);
   for (const f of safeList(TTS)) if (Number(f.split('.')[0]) < c.id - 50) fs.rm(path.join(TTS, f), () => {});
+  for (const k of ttsJobs.keys()) if (Number(k) < c.id - 50) ttsJobs.delete(k);
 }
 
 // ---------------------------------------------------------------- loops
+
+startTtsWorker();
+warmClaude();
 
 function every(ms, fn) { const run = () => Promise.resolve(fn()).catch(err => console.error(err)); run(); return setInterval(run, ms); }
 
@@ -1100,19 +1306,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/commands') {
       const after = Number(url.searchParams.get('after') || nextCommandId - 1);
-      return send(res, 200, { last: nextCommandId - 1, commands: commands.filter(c => c.id > after) });
+      const liveId = Number(url.searchParams.get('live') || 0);
+      const lc = liveId && commands.find(c => c.id === liveId);
+      return send(res, 200, { last: nextCommandId - 1, commands: commands.filter(c => c.id > after), live: lc ? { id: lc.id, reply: lc.reply, done: !lc.streaming } : null });
     }
     if (url.pathname === '/api/voice' && req.method === 'POST') {
       const { text } = await body(req);
       if (!String(text || '').trim()) return send(res, 400, { error: 'Nothing heard' });
       return send(res, 200, await hear(text));
     }
-    const tts = url.pathname.match(/^\/api\/tts\/(\d+)(\.\w+)?$/);
+    const tts = url.pathname.match(/^\/api\/tts\/(\d+|filler-\d)(\.\w+)?$/);
     if (tts) {
-      const job = ttsJobs.get(Number(tts[1]));
-      const file = job ? await job : [path.join(TTS, `${tts[1]}.mp3`), path.join(TTS, `${tts[1]}.wav`)].find(f => fs.existsSync(f));
-      if (!file || !fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
-      return send(res, 200, fs.readFileSync(file), file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav');
+      // Still being voiced: stream it as it comes.
+      const live = ttsLive.get(tts[1]);
+      if (live) return live.attach(res);
+      const job = ttsJobs.get(tts[1]);
+      return sendAudio(res, job ? await job : [path.join(TTS, `${tts[1]}.mp3`), path.join(TTS, `${tts[1]}.wav`)].find(f => fs.existsSync(f)));
     }
     if (url.pathname === '/api/board' && req.method === 'GET') return send(res, 200, { board: state.board, canEdit: allowedToEdit(req), needsPassword: Boolean(PASSWORD) });
     if (url.pathname === '/api/board' && req.method === 'POST') {
