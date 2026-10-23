@@ -12,12 +12,15 @@ server.mjs starts it and reads one JSON object per line from it:
   {"type": "chat", "name": ..., "messages": [{"from", "text", "time", "mine"}]}
                                                the group's latest messages, when they change
   {"type": "screen", "jpg": <base64>}          the whole WhatsApp screen, while the TV watches
+  {"type": "chats", "names": [...]}            every chat's name (read by scrolling the list once
+                                               at start, then whatever is on screen)
   {"type": "done", "id": ..., "ok": true|false, "detail": ...}
                                                the result of a command
 
 and takes one command per line on stdin:
   {"cmd": "watch", "on": true|false}           the TV started or stopped showing WhatsApp
   {"id": ..., "cmd": "open", "name": ...}      open the chat whose name best matches
+  {"id": ..., "cmd": "open_index", "index": n} open the n-th chat on screen (0 = the top one)
   {"id": ..., "cmd": "scroll", "dir": "up|down", "where": "chat|list"}
   {"id": ..., "cmd": "list"}                   close the open chat (back to the chat list)
 """
@@ -73,6 +76,23 @@ NAMES = """() => [...document.querySelectorAll('#pane-side [role="listitem"], #p
 PICK = """(t) => { for (const r of document.querySelectorAll('#pane-side [role="listitem"], #pane-side [role="row"]')) {
   const s = r.querySelector('span[title]');
   if (s && s.getAttribute('title') === t) { s.setAttribute('data-jarvis-pick', '1'); return true; } } return false; }"""
+# The chats on screen, top to bottom, as [name, row top].
+ON_SCREEN = """() => { const pane = document.querySelector('#pane-side'); if (!pane) return [];
+  const top = pane.getBoundingClientRect().top, bottom = pane.getBoundingClientRect().bottom, seen = new Set();
+  return [...pane.querySelectorAll('[role="listitem"], [role="row"]')].map(r => {
+    const s = r.querySelector('span[title]'), b = r.getBoundingClientRect();
+    return s ? [s.getAttribute('title'), b.top, b.bottom] : null; })
+    .filter(x => x && x[2] > top + 4 && x[1] < bottom - 4 && !seen.has(x[0]) && seen.add(x[0]))
+    .sort((a, b) => a[1] - b[1]); }"""
+# Scroll the chat list ("list") or the open chat ("chat") by a number of pixels; true if it moved.
+SCROLL = """([where, by]) => {
+  let el = where === 'list' ? document.querySelector('#pane-side') : null;
+  if (!el) {
+    const all = [...document.querySelectorAll('#main div')].filter(d => d.scrollHeight > d.clientHeight + 50 && /(auto|scroll)/.test(getComputedStyle(d).overflowY));
+    el = all.sort((a, b) => b.clientHeight - a.clientHeight)[0] || document.querySelector('#pane-side');
+  }
+  if (!el) return false;
+  const before = el.scrollTop; el.scrollTop += by; return el.scrollTop !== before; }"""
 BIDI = re.compile('[‎‏‪-‮⁦-⁩]')
 
 
@@ -101,22 +121,58 @@ def best_match(name, titles):
     return next((t for t in titles if close and clean(t).lower() == close[0]), None)
 
 
+def pick(page, title):
+    if not page.evaluate(PICK, title):
+        return False
+    page.locator('[data-jarvis-pick]').first.click()
+    page.evaluate("() => document.querySelectorAll('[data-jarvis-pick]').forEach(e => e.removeAttribute('data-jarvis-pick'))")
+    page.wait_for_selector('#main', timeout=15000)
+    return True
+
+
+def open_index(page, index):
+    rows = page.evaluate(ON_SCREEN)
+    if index < 0:
+        index += len(rows)
+    if not 0 <= index < len(rows):
+        return None
+    return clean(rows[index][0]) if pick(page, rows[index][0]) else None
+
+
+def all_names(page):
+    """Scroll the chat list from top to bottom once, noting every chat's name, then back to the top."""
+    box = page.locator('#pane-side').first.bounding_box()
+    if not box:
+        return []
+    names, still = [], 0
+    for _ in range(150):
+        new = [t for t in chat_titles(page) if t not in names]
+        names += new
+        moved = page.evaluate(SCROLL, ['list', 600])
+        still = still + 1 if not (new or moved) else 0
+        if still >= 3:
+            break
+        time.sleep(0.3)
+    page.evaluate("() => { const p = document.querySelector('#pane-side'); if (p) p.scrollTop = 0; }")
+    return [clean(n) for n in names]
+
+
 def open_chat(page, name):
     """Open the chat whose name best matches: from the list if it's there, else by searching for it."""
     title = best_match(name, chat_titles(page))
     searched = False
     if not title:
+        # Not on screen: search for it, and wait only until the results show.
         page.locator(SEARCH).first.click()
         page.keyboard.press('Control+A')
-        page.keyboard.type(name, delay=20)
-        time.sleep(1.8)
+        page.keyboard.type(name, delay=8)
         searched = True
-        title = best_match(name, chat_titles(page))
-    if title and page.evaluate(PICK, title):
-        page.locator('[data-jarvis-pick]').first.click()
-        page.evaluate("() => document.querySelectorAll('[data-jarvis-pick]').forEach(e => e.removeAttribute('data-jarvis-pick'))")
-        page.wait_for_selector('#main', timeout=15000)
-    else:
+        for _ in range(12):
+            time.sleep(0.15)
+            title = best_match(name, chat_titles(page))
+            if title:
+                break
+    if not (title and pick(page, title)):
         title = None
     if searched:
         # Clear the search box so the full chat list comes back.
@@ -127,13 +183,8 @@ def open_chat(page, name):
 
 
 def scroll(page, direction, where):
-    use_chat = where != 'list' and page.locator('#main').count()
-    box = page.locator('#main' if use_chat else '#pane-side').first.bounding_box()
-    if not box:
-        return False
-    page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
-    page.mouse.wheel(0, -700 if direction == 'up' else 700)
-    return True
+    where = 'chat' if where == 'chat' and page.locator('#main').count() else 'list'
+    return page.evaluate(SCROLL, [where, -600 if direction == 'up' else 600])
 
 
 def run_command(page, c, watch):
@@ -144,6 +195,9 @@ def run_command(page, c, watch):
     if kind == 'open':
         title = open_chat(page, c.get('name', ''))
         return (True, title) if title else (False, f'no chat called "{c.get("name", "")}"')
+    if kind == 'open_index':
+        title = open_index(page, int(c.get('index', 0)))
+        return (True, title) if title else (False, 'no chat there')
     if kind == 'scroll':
         return scroll(page, c.get('dir', 'down'), c.get('where', 'chat')), ''
     if kind == 'list':
@@ -162,7 +216,7 @@ def main():
         page.goto(WEB, wait_until='domcontentloaded', timeout=60000)
         state, last_qr, group, last_msgs = None, None, None, None
         watch = {'on': False, 'shot': 0, 'last': None, 'until': 0}
-        last_read = 0
+        last_read, last_names, crawled = 0, None, 0
         while True:
             try:
                 qr = page.locator(QR)
@@ -197,6 +251,15 @@ def main():
                     watch['until'] = time.time() + 120   # stay where they left it for a while
                     watch['shot'] = 0
 
+                # Every chat's name: by scrolling the list when nobody is watching (at start, then hourly).
+                if not watch['on'] and time.time() - crawled > 3600:
+                    crawled = time.time()
+                    emit({'type': 'chats', 'names': all_names(page), 'all': True})
+                names = [clean(n) for n in chat_titles(page)]
+                if names != last_names:
+                    last_names = names
+                    emit({'type': 'chats', 'names': names})
+
                 current = clean(page.evaluate(OPEN_CHAT)) if page.locator('#main').count() else ''
                 # When nobody is looking, go back to the group so its messages are followed.
                 if not watch['on'] and time.time() > watch['until'] and (not group or current != group):
@@ -217,14 +280,14 @@ def main():
                         emit({'type': 'chat', 'name': group, 'messages': msgs[-12:]})
 
                 # Pictures of the whole screen while the TV shows WhatsApp.
-                if watch['on'] and time.time() - watch['shot'] > 0.8:
+                if watch['on'] and time.time() - watch['shot'] > 0.3:
                     watch['shot'] = time.time()
                     jpg = page.screenshot(type='jpeg', quality=70)
                     h = hashlib.md5(jpg).hexdigest()
                     if h != watch['last']:
                         watch['last'] = h
                         emit({'type': 'screen', 'jpg': base64.b64encode(jpg).decode()})
-                time.sleep(0.2 if watch['on'] else 1)
+                time.sleep(0.05 if watch['on'] else 1)
             except Exception as err:
                 emit({'type': 'status', 'state': 'error', 'detail': str(err).splitlines()[0][:200]})
                 time.sleep(5)

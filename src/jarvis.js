@@ -499,7 +499,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (!on) { const d = rotator.current(); if (d) $('site-name').textContent = d.name; if (zoomed === 'site') unzoom(); return; }
     if (zoomed !== 'site') zoom('site', 600);
     $('site-name').textContent = 'WhatsApp';
-    waTimer = setInterval(waFrame, 1000);
+    waTimer = setInterval(waFrame, 350);
     waFrame();
     const wa = S && S.whatsapp;
     $('wa-chat').textContent = wa && wa.chat ? wa.chat : wa && wa.qr ? 'scan to link' : 'starting';

@@ -607,6 +607,8 @@ function startWhatsApp() {
         if (wa.ready) wa.qr = null;
       } else if (m.type === 'qr') {
         wa.qr = 'data:image/png;base64,' + m.png;
+      } else if (m.type === 'chats') {
+        noteChats((m.names || []).filter(Boolean), m.all);
       } else if (m.type === 'screen') {
         waScreen = Buffer.from(m.jpg, 'base64');
         wa.screenAt = Date.now();
@@ -800,6 +802,73 @@ function overview() {
   return parts.join(' ');
 }
 
+// Which WhatsApp chat they meant, from what speech recognition heard ("eno webb",
+// "so my order"): every run of words in the sentence is compared with every chat
+// name, by spelling and by sound (consonants only, doubled letters merged).
+const CHAT_STOP = new Set(['open', 'up', 'the', 'a', 'an', 'chat', 'chats', 'conversation', 'conversations', 'group', 'with', 'from', 'called', 'named', 'on', 'whatsapp', 'whats', 'app',
+  'please', 'can', 'you', 'could', 'would', 'show', 'me', 'go', 'to', 'pull', 'bring', 'search', 'for', 'find', 'click', 'select', 'tap', 'check', 'enter', 'into', 'messages', 'message',
+  'fucking', 'fuck', 'now', 'jarvis', 'honey', 'babe', 'darling', 'one', 'it', 'its', 'that', 'this', 'there', 'and', 'i', 'see', 'let', 'look', 'at', 'of', 'just', 'hey', 'ok', 'okay', 'oh']);
+const squash = (x) => norm(x).replace(/[^a-z0-9]/g, '').replace(/(.)\1+/g, '$1');
+const sound = (x) => squash(x).replace(/ph/g, 'f').replace(/[ck]/g, 'k').replace(/[sz]/g, 's').replace(/[aeiouyhw]/g, '');
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+const sim = (a, b) => (a && b ? 1 - lev(a, b) / Math.max(a.length, b.length) : 0);
+// How well a heard piece matches a name: the whole name, or how the name starts.
+// How well a heard piece matches a name: the whole name, how it starts, or any run of its words.
+function score(heard, name, f, min) {
+  const h = f(heard), n = f(name);
+  if (h.length < min || !n) return 0;
+  let best = sim(h, n);
+  for (let k = Math.max(2, h.length - 2); k <= h.length + 2; k++) best = Math.max(best, sim(h, n.slice(0, k)) * 0.93);
+  const tokens = norm(name).split(/\s+/);
+  for (let i = 1; i < tokens.length; i++) for (let j = i + 1; j <= tokens.length; j++) best = Math.max(best, sim(h, f(tokens.slice(i, j).join(' '))) * 0.9);
+  return best;
+}
+function matchChat(said, names) {
+  const words = norm(said).replace(/[^a-z0-9+ ]/g, ' ').split(/\s+/).filter(w => w && !CHAT_STOP.has(w));
+  let best = null;
+  for (const name of names) {
+    for (let i = 0; i < words.length; i++) {
+      for (let len = 1; len <= Math.min(5, words.length - i); len++) {
+        const piece = words.slice(i, i + len).join(' ');
+        if (squash(piece).length < 3) continue;
+        const sc = Math.max(score(piece, name, squash, 3), score(piece, name, sound, 3) * 0.95);
+        if (!best || sc > best.score) best = { name, score: sc, piece };
+      }
+    }
+  }
+  return best && best.score >= 0.6 ? best : null;
+}
+// "the fourth one", "third chat", "number 2": a position on screen (0 = the top).
+const ORD = { first: 0, '1st': 0, one: 0, second: 1, '2nd': 1, two: 1, third: 2, '3rd': 2, three: 2, fourth: 3, '4th': 3, four: 3, fifth: 4, '5th': 4, five: 4,
+  sixth: 5, '6th': 5, six: 5, seventh: 6, '7th': 6, seven: 6, eighth: 7, '8th': 7, eight: 7, ninth: 8, '9th': 8, nine: 8, tenth: 9, '10th': 9, ten: 9, top: 0, last: -1 };
+function chatPosition(said) {
+  const t = norm(said);
+  const m = /\b(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|top|last)\b(?:\s+(?:one|chat|conversation|group))?/.exec(t)
+    || /\bnumber\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/.exec(t);
+  if (!m) return null;
+  const w = m[1];
+  return /^\d+$/.test(w) ? Number(w) - 1 : ORD[w];
+}
+
+
+// Every WhatsApp chat's name, as the bridge reads them (kept between restarts).
+const WA_CHATS_FILE = path.join(DATA, 'whatsapp', 'chats.json');
+let waChats = (() => { try { return JSON.parse(fs.readFileSync(WA_CHATS_FILE, 'utf8')); } catch { return []; } })();
+function noteChats(names, all) {
+  const next = all ? [...names, ...waChats.filter(n => !names.includes(n))] : [...waChats, ...names.filter(n => !waChats.includes(n))];
+  if (next.length === waChats.length && next.every((n, i) => n === waChats[i])) return;
+  waChats = next.filter(Boolean).slice(0, 2000);
+  try { fs.mkdirSync(path.dirname(WA_CHATS_FILE), { recursive: true }); fs.writeFileSync(WA_CHATS_FILE, JSON.stringify(waChats)); } catch {}
+}
+const OPEN_LINES = ['Here you go, darling.', 'There you go, gorgeous.', 'Opening it, babe.'];
+const NOT_FOUND = "I can't find that chat, darling. Say the name again?";
+const pickLine = (lines) => lines[Math.floor(Math.random() * lines.length)];
+
 function rules(raw) {
   const t = raw.toLowerCase().replace(/\b(hey |ok |okay )?(jarvis|jervis|javis|travis|charvis)\b/g, ' ').replace(/[^a-z0-9à-ú€ ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return { action: 'none', reply: 'Yes?' };
@@ -809,14 +878,21 @@ function rules(raw) {
   if (pending && /^(yes|yeah|yep|sure|do it|go ahead|confirm|send it|sim)\b/.test(t)) return { action: 'confirm', reply: '' };
   if (pending && /^(no|nope|cancel|stop|don t|dont|nao|não)\b/.test(t)) { pending = null; return { action: 'none', reply: 'Cancelled.' }; }
   const site = matchSite(t), panel = matchPanel(t);
-  if (/\b(zoom out|close( it| that)?|exit|go back|back to (normal|everything|the dashboard)|show (me )?everything|all panels|full view|minimi[sz]e|normal view)\b/.test(t) && !(site || panel) || /^(back|close|exit|zoom out)$/.test(t)) return { action: 'unzoom', reply: 'Back to everything.' };
-  if (state.whatsapp.watching) {
-    if (/\b(scroll|go|move) up\b|\bup\b$|\bolder\b/.test(t)) return { action: 'whatsapp_scroll', dir: 'up', reply: 'Up we go.' };
-    if (/\b(scroll|go|move) down\b|\bdown\b$|\bnewer\b/.test(t)) return { action: 'whatsapp_scroll', dir: 'down', reply: 'Down we go.' };
-    if (/\b(chat list|all (the )?chats|list of chats|back to (the )?chats)\b/.test(t)) return { action: 'whatsapp_list', reply: 'All your chats.' };
-    const o = /^(?:open|show( me)?|go to|pull up|bring up|search( for)?|find)\s+(?:the\s+)?(?:chat|conversation|group|messages)?\s*(?:with|from|called|for)?\s*(.+?)(?:\s+(?:chat|on whatsapp|whatsapp))?$/.exec(t);
-    if (o && o[3] && !panel && !site && !/^(whatsapp|whats app|everything|all)$/.test(o[3])) return { action: 'whatsapp_open', chat: o[3], reply: '' };
+  const waWords = /\b(whatsapp|whats app|what s app)\b/.test(t);
+  if (state.whatsapp.ready && (state.whatsapp.watching || waWords)) {
+    const dir = /\b(down|lower|below|newer|bottom)\b/.test(t) ? 'down' : /\b(up|higher|above|older|top)\b/.test(t) ? 'up' : null;
+    if (dir && /\b(scroll|go|move|swipe|page|further|more|keep going|slide)\b/.test(t) && !/\b(pull up|bring up|open up)\b/.test(t)) {
+      const where = /\b(chats|chat list|list|conversations|other chat|groups|contacts)\b/.test(t) ? 'list' : 'chat';
+      return { action: 'whatsapp_scroll', dir, where, reply: dir === 'up' ? 'Up we go.' : 'Down we go.' };
+    }
+    if (/\b(chat list|all (the |my )?chats|list of chats|back to (the |my )?chats|close (the |this )?chat)\b/.test(t)) return { action: 'whatsapp_list', reply: 'All your chats.' };
+    const openVerb = /\b(open|show|go to|go into|pull up|bring up|search|find|click|select|tap|check|enter|look at|read|get)\b/.test(t);
+    const pos = chatPosition(t);
+    if (openVerb && pos != null && !panel) return { action: 'whatsapp_open', index: pos, reply: pickLine(OPEN_LINES) };
+    const hit = (openVerb || state.whatsapp.watching) && matchChat(t, waChats);
+    if (hit && (!panel || hit.score >= 0.9) && !(waWords && !openVerb && hit.score < 0.8)) return { action: 'whatsapp_open', chat: hit.name, reply: pickLine(OPEN_LINES) };
   }
+  if (/\b(zoom out|close( it| that)?|exit|go back|back to (normal|everything|the dashboard)|show (me )?everything|all panels|full view|minimi[sz]e|normal view)\b/.test(t) && !(site || panel) || /^(back|close|exit|zoom out)$/.test(t)) return { action: 'unzoom', reply: 'Back to everything.' };
   if (/\b(whatsapp|whats app|what s app)\b/.test(t) && /\b(pull up|show|open|bring up|put up|go to|switch to)\b/.test(t)) return { action: 'whatsapp', reply: state.whatsapp?.ready ? `Here is ${state.whatsapp.chat || 'WhatsApp'}.` : state.whatsapp?.qr ? 'Here is the code to link WhatsApp. Open WhatsApp on the phone, go to Linked devices, and scan it.' : 'WhatsApp is starting up. Give it a moment.' };
   if (/\b(reload|refresh|restart)\b/.test(t)) {
     if (/\b(data|numbers|stats|figures)\b/.test(t)) return { action: 'refresh', reply: 'Refreshing every source now.' };
@@ -860,7 +936,8 @@ You can also act on the TV by choosing an action:
 - unzoom: back to all panels. reload: reload the TV page. refresh: re-read every data source now. reshoot: take fresh pictures of the sites.
 - next / previous: change the site in "Our work". show_site: show one site (set site to its url).
 - tour: show each panel full screen in turn while you give the overview.
-- whatsapp_open: show WhatsApp on the TV with one chat open (set chat to the person or group's name, as said). whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list. You can look at WhatsApp but not write or send messages.
+- whatsapp_open: show WhatsApp on the TV with one chat open: set chat to the name exactly as it is in whatsapp.chatNames, the one they most likely meant (speech recognition mangles names: "eno webb" is InnoWeb, "so my order" is Sol Maior).
+ whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list. You can look at WhatsApp but not write or send messages.
 - backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
@@ -887,6 +964,7 @@ function snapshot() {
     flowdesk: f.ok ? { doneToday: f.doneToday, doneThisWeek: f.doneWeek, inProgress: f.inProgress, people: f.people.map(p => ({ name: p.name, status: p.status, doneToday: p.done, doneThisWeek: p.week, workingOnNow: p.working, stillDueToday: p.dueToday, lastDone: p.lastDone })) } : 'not connected',
     innolink: i.ok ? { opens: i.views, clicks: i.clicks, pages: i.clients.map(c => ({ name: c.name, opens: c.views, clicks: c.clicks })) } : 'not connected',
     sites: (state.board?.sites || []).map(s => ({ name: s.name, url: s.url, up: state.sites[s.url]?.ok ?? null })),
+    whatsapp: state.whatsapp.ready ? { showingOnTv: !!state.whatsapp.watching, chatNames: waChats.slice(0, 120) } : 'not linked',
     recentLog: events.slice(-12).map(e => `${e.at.slice(11, 16)} ${e.level} ${e.text}`),
   };
 }
@@ -984,8 +1062,9 @@ const spoken = [];
 const wordsOf = (x) => norm(x).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w => w.length > 2);
 function isEcho(heard) {
   const words = wordsOf(heard);
-  if (words.length < 3) return false;
-  return spoken.some(r => Date.now() - r.at < 90000 && words.filter(w => r.words.has(w)).length / words.length >= 0.6);
+  if (words.length < 4) return false;
+  if (/^(hey |ok |okay )?(jarvis |honey |babe )?(please )?(open|scroll|show|pull|go|search|find|close|zoom|next|back|click|select|tap|check|read|give|tell|add)\b/i.test(norm(heard))) return false;
+  return spoken.some(r => Date.now() - r.at < 30000 && words.filter(w => r.words.has(w)).length / words.length >= 0.75);
 }
 function remember(c) {
   recent.push({ heard: c.heard, reply: c.reply });
@@ -1054,12 +1133,13 @@ async function hear(text) {
   }
   if (out.action === 'whatsapp_open') {
     waWatch(true);
-    const r = await waCmd({ cmd: 'open', name: out.chat || '' });
-    out = { action: 'whatsapp', reply: r.ok ? (out.reply || `Here's ${r.detail}.`) : `I can't find a chat called ${out.chat}, darling.` };
+    const name = out.index != null ? null : ((matchChat(out.chat || '', waChats) || {}).name || out.chat || '');
+    waCmd(name == null ? { cmd: 'open_index', index: out.index } : { cmd: 'open', name }).then(r => { if (!r.ok) announce(NOT_FOUND); });
+    out = { action: 'whatsapp', reply: out.reply || pickLine(OPEN_LINES) };
   }
   if (out.action === 'whatsapp_scroll' || out.action === 'whatsapp_list') {
     waWatch(true);
-    await waCmd(out.action === 'whatsapp_list' ? { cmd: 'list' } : { cmd: 'scroll', dir: out.dir === 'up' ? 'up' : 'down' });
+    waCmd(out.action === 'whatsapp_list' ? { cmd: 'list' } : { cmd: 'scroll', dir: out.dir === 'up' ? 'up' : 'down', where: out.where || 'chat' });
     out = { action: 'whatsapp', reply: out.reply || 'There.' };
   }
   if (out.action === 'whatsapp') waWatch(true);
@@ -1170,7 +1250,7 @@ function startTtsWorker() {
 const TTS_CACHE = path.join(TTS, 'cache');
 const cacheFile = (text) => path.join(TTS_CACHE, crypto.createHash('md5').update(VOICE + '|' + text.trim()).digest('hex') + '.mp3');
 const COMMON_LINES = ['Watch this, darling.', 'Hold my tentacles.', 'Ten out of ten, obviously.', 'Show-off mode, on.', 'Back to everything.', 'Up we go.', 'Down we go.',
-  'All your chats.', 'There.', 'Next one.', 'Going back one.', 'Let us celebrate.', 'Testing the alarm.', 'Going quiet.', 'I am back.', 'Reloading the screen.', 'Yes?'];
+  'All your chats.', 'There.', 'Here you go, darling.', 'There you go, gorgeous.', 'Opening it, babe.', "I can't find that chat, darling. Say the name again?", 'Next one.', 'Going back one.', 'Let us celebrate.', 'Testing the alarm.', 'Going quiet.', 'I am back.', 'Reloading the screen.', 'Yes?'];
 let warmCount = 0;
 function synth(text) {
   return new Promise(resolve => {
