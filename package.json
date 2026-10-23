@@ -1,0 +1,14 @@
+{
+  "name": "innoweb-jarvis",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Innoweb's TV dashboard",
+  "type": "module",
+  "scripts": {
+    "start": "npm run build && node --no-warnings server.mjs",
+    "build": "npx -y esbuild@0.24.0 src/jarvis.js --outfile=public/jarvis.js --target=chrome51 --legal-comments=none"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

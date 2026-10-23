@@ -1,0 +1,12 @@
+.env
+data/log.jsonl
+node_modules/
+data/server.log
+data/claude-accounts/
+public/demos/
+public/shots/
+data/whatsapp/
+data/tts/
+data/brain/
+data/cert/
+__pycache__/

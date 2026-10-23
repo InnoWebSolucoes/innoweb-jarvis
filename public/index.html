@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
+<meta name="robots" content="noindex, nofollow">
+<title>Innoweb Jarvis</title>
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/jarvis.css?v=64">
+</head>
+<body>
+<div id="viewport">
+<main id="stage">
+
+  <!-- Left column -->
+  <section class="card" id="p-clock">
+    <div class="clock-top">
+      <div>
+        <div class="greet" id="greet">Good evening, Innoweb</div>
+        <div class="clock-time" id="clock-time">00:00</div>
+      </div>
+      <div class="clock-date" id="clock-date"></div>
+    </div>
+    <div class="cd">
+      <div class="cd-line"><b id="cd-d">00</b><span>days</span><b id="cd-h">00</b><span>hours</span><b id="cd-m">00</b><span>min</span><b id="cd-s">00</b><span>sec</span></div>
+      <div class="cd-label">until <span id="cd-label"></span></div>
+    </div>
+  </section>
+
+  <section class="card panel" id="p-ach" data-panel="ach">
+    <div class="card-head"><h2>Goal</h2><span class="chip" id="rev-goal">€10,000</span></div>
+    <div class="money-now" id="rev-now">€0</div>
+    <div class="bar"><div class="bar-fill" id="rev-bar"></div></div>
+    <div class="bar-scale"><span id="rev-pct">0% of the way</span><span id="rev-goal2"></span></div>
+  </section>
+
+  <section class="card panel" id="p-todo" data-panel="todo">
+    <div class="card-head"><h2>To do</h2><span class="meta" id="todo-count"></span></div>
+    <ol class="todo" id="todo"></ol>
+  </section>
+
+  <section class="card panel" id="p-log" data-panel="log">
+    <div class="card-head"><h2>Live activity</h2><span class="live">Live</span></div>
+    <ol class="log" id="log"></ol>
+  </section>
+
+  <!-- Centre column -->
+  <section class="card panel bare" id="p-site" data-panel="site">
+    <div class="card-head"><h2>Our work</h2><span class="meta" id="site-count"></span></div>
+    <div class="desk" id="desk">
+      <div class="monitor" id="monitor">
+        <div class="screen" id="screen">
+          <div class="chrome">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="address"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span id="site-url"></span></span>
+          </div>
+          <div class="browser-view" id="site-view"></div>
+          <div class="wa-view" id="wa-view"><div class="wa-head"><b>WhatsApp</b><span id="wa-chat"></span></div><div class="wa-msgs" id="wa-msgs"></div></div>
+        </div>
+      </div>
+      <div class="neck"></div>
+      <div class="base"></div>
+      <div class="site-caption" id="site-caption">
+        <span class="dot" id="site-health"></span>
+        <span class="site-name" id="site-name"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card panel" id="p-pipe" data-panel="pipe">
+    <div class="card-head"><h2>Pipeline</h2><span class="meta">every lead contacted</span></div>
+    <div class="funnel" id="funnel"></div>
+    <div class="replies" id="replies"></div>
+  </section>
+
+  <!-- Right column -->
+  <section class="card panel" id="p-lead" data-panel="lead">
+    <div class="card-head"><h2>Lead finder</h2><span class="chip">Today</span></div>
+    <div class="tracker" id="lf-tracker"><i></i><div><div id="lf-now">Connecting to the lead finder</div><div id="lf-wa-line"></div></div></div>
+    <div class="lf-big">
+      <div><b id="lf-sent"></b><span>Websites sent</span></div>
+      <div><b id="lf-wa"></b><span>WhatsApps</span></div>
+      <div><b id="lf-new"></b><span>New leads</span></div>
+    </div>
+    <div class="lf-small">
+      <span><b id="lf-replies"></b> replies today</span>
+      <span><b id="lf-built"></b> sites built today</span>
+      <span><b id="lf-total"></b> leads in total</span>
+    </div>
+    <div class="week-head">WhatsApps this week</div>
+    <div class="week" id="lf-week"></div>
+  </section>
+
+  <section class="card panel" id="p-team" data-panel="team">
+    <div class="card-head"><h2>Team</h2><span class="meta" id="team-total"></span></div>
+    <div class="team" id="team"></div>
+  </section>
+
+  <section class="card panel" id="p-meta" data-panel="meta">
+    <div class="card-head"><h2>Claude</h2></div>
+    <div class="claude" id="tokens"></div>
+  </section>
+
+  <section class="card panel" id="p-link" data-panel="link">
+    <div class="card-head"><h2>Innolink</h2></div>
+    <div class="link-totals">
+      <div><b id="il-views">0</b><span>opens</span></div>
+      <div><b id="il-clicks">0</b><span>clicks</span></div>
+      <div><b id="il-rate">0%</b><span>click rate</span></div>
+    </div>
+    <div class="link-list" id="il-list"></div>
+  </section>
+
+  <div id="dim"></div>
+  <canvas id="fx"></canvas>
+  <div id="say"><div id="say-heard"></div><div id="say-reply"></div></div>
+  <div id="spider" aria-hidden="true"></div>
+  <div id="banner" aria-live="polite"></div>
+  <div id="offline"></div>
+</main>
+</div>
+
+<div id="alarm" aria-hidden="true"></div>
+
+<svg width="0" height="0" style="position:absolute" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <g id="hex" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8"/>
+      <polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/>
+      <path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/>
+    </g>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+    <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient>
+    <linearGradient id="gSpark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6" stop-opacity="0.35"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient>
+  </defs>
+</svg>
+<script src="/jarvis.js?v=64"></script>
+</body>
+</html>

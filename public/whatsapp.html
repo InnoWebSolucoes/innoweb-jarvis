@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Link WhatsApp to Jarvis</title>
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0b141a; color: #e9edef; font: 18px/1.5 'Segoe UI', Roboto, Arial, sans-serif; }
+  main { text-align: center; padding: 24px; }
+  h1 { margin: 0 0 6px; font-size: 26px; }
+  p { margin: 0 0 22px; color: #8696a0; }
+  #qr { width: 320px; height: 320px; padding: 16px; border-radius: 16px; background: #fff; }
+  #state { margin-top: 18px; font-weight: 600; }
+  b { color: #25d366; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Link WhatsApp to Jarvis</h1>
+  <p>On the phone that is in the Innoweb group: WhatsApp, Settings, <b>Linked devices</b>, <b>Link a device</b>, then scan.</p>
+  <img id="qr" alt="" hidden>
+  <div id="state">Starting WhatsApp…</div>
+</main>
+<script>
+  // The code changes every few seconds until it is scanned; this keeps it current.
+  async function poll() {
+    try {
+      const wa = (await (await fetch('/api/state', { cache: 'no-store' })).json()).whatsapp || {};
+      const qr = document.getElementById('qr'), st = document.getElementById('state');
+      if (wa.ready) { qr.hidden = true; st.innerHTML = 'Linked. Jarvis is reading <b>' + (wa.chat || 'the group') + '</b>. You can close this page.'; }
+      else if (wa.qr) { qr.src = wa.qr; qr.hidden = false; st.textContent = 'Waiting for the scan…'; }
+      else st.textContent = wa.state === 'error' ? 'WhatsApp had a problem: ' + (wa.detail || '') : 'Starting WhatsApp…';
+    } catch (e) {}
+  }
+  poll(); setInterval(poll, 2000);
+</script>
+</body>
+</html>

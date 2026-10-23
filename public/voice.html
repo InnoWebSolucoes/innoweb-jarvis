@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
+<meta name="robots" content="noindex, nofollow">
+<title>Talk to Jarvis</title>
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #03060a; --card: #0b141c; --line: rgba(94, 231, 255, 0.18); --cyan: #5ee7ff; --lime: #c8ff3e; --red: #ff3347; --text: #eaf4f8; --muted: #93abb9; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'Chakra Petch', system-ui, sans-serif; font-size: 16px; padding: 20px 16px; }
+  main { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; min-height: calc(100% - 0px); }
+  header { display: flex; align-items: center; gap: 12px; }
+  header svg { width: 38px; height: 38px; color: var(--cyan); }
+  h1 { font-size: 22px; letter-spacing: 0.16em; }
+  h1 small { display: block; font-size: 12px; color: var(--lime); letter-spacing: 0.3em; }
+  header a { margin-left: auto; color: var(--cyan); font-size: 15px; }
+  .mic-wrap { display: flex; flex-direction: column; align-items: center; padding: 34px 0 20px; }
+  #mic { width: 180px; height: 180px; border-radius: 50%; border: 3px solid var(--cyan); background: radial-gradient(circle, rgba(94, 231, 255, 0.18), rgba(3, 6, 10, 0) 70%); color: var(--cyan); display: grid; place-items: center; cursor: pointer; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  #mic svg { width: 70px; height: 70px; }
+  #mic.on { border-color: var(--lime); color: var(--lime); box-shadow: 0 0 0 10px rgba(200, 255, 62, 0.12), 0 0 60px rgba(200, 255, 62, 0.45); animation: pulse 1.4s ease-in-out infinite; }
+  #mic:disabled { opacity: 0.35; cursor: not-allowed; }
+  @keyframes pulse { 50% { transform: scale(1.05); } }
+  #status { margin-top: 18px; font-size: 17px; color: var(--muted); text-align: center; min-height: 1.5em; }
+  #interim { margin-top: 6px; font-size: 20px; color: var(--text); text-align: center; min-height: 1.4em; }
+  .opts { display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: center; margin-bottom: 18px; font-size: 15px; color: var(--muted); }
+  .opts label { display: flex; align-items: center; gap: 8px; }
+  .opts input { width: 20px; height: 20px; accent-color: var(--lime); }
+  .opts select { background: #050a0f; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: 15px 'Chakra Petch', sans-serif; }
+  form { display: flex; gap: 8px; }
+  form input { flex: 1; min-width: 0; padding: 14px; font: 600 17px 'Chakra Petch', sans-serif; color: var(--text); background: #050a0f; border: 1px solid var(--line); border-radius: 8px; }
+  form button { padding: 0 18px; background: var(--lime); color: #071003; border: 0; border-radius: 8px; font: 700 16px 'Chakra Petch', sans-serif; letter-spacing: 0.1em; text-transform: uppercase; }
+  .note { margin: 14px 0 0; padding: 12px 14px; border: 1px solid rgba(255, 176, 32, 0.4); border-radius: 8px; color: #ffcf7a; font-size: 14px; line-height: 1.5; }
+  .note[hidden] { display: none; }
+  ol { list-style: none; margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  li { padding: 12px 14px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); line-height: 1.4; }
+  li .you { color: var(--muted); font-size: 14px; margin-bottom: 4px; }
+  li .jarvis { font-size: 17px; }
+  .hints { margin-top: 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .hints b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="-30 -30 60 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8"/><polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/><path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/></g></svg>
+    <h1>INNOWEB<small>TALK TO JARVIS</small></h1>
+    <a href="/">TV view</a>
+  </header>
+
+  <div class="mic-wrap">
+    <button id="mic" type="button" aria-label="Talk to Jarvis">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>
+    </button>
+    <div id="status">Tap and speak</div>
+    <div id="interim"></div>
+  </div>
+
+  <div class="opts">
+    <label><input type="checkbox" id="always"> Always listening (start with "Jarvis")</label>
+    <label><input type="checkbox" id="speakHere"> Speak here (<span id="voiceName">voice</span>)</label>
+    <select id="lang" aria-label="Language">
+      <option value="en-GB">English</option>
+      <option value="pt-PT">Português</option>
+    </select>
+  </div>
+
+  <form id="type">
+    <input id="text" placeholder="Or type: pull up Innolink" autocomplete="off" enterkeyhint="send">
+    <button type="submit">Send</button>
+  </form>
+  <p class="note" id="nomic" hidden></p>
+
+  <ol id="convo"></ol>
+
+  <p class="hints">Try <b>pull up Innolink</b>, <b>show Okulya</b>, <b>next site</b>, <b>how much money have we made</b>, <b>go back</b>, <b>reload</b>, <b>refresh the data</b>, <b>give me a status report</b>, <b>celebrate</b>.</p>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const WAKE = /\b(hey |ok |okay )?(jarvis|jervis|javis|travis|charvis)\b/i;
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} };
+
+  $('speakHere').checked = store('jarvis-speak-here') === '1';
+  $('lang').value = store('jarvis-lang') || 'en-GB';
+  $('speakHere').onchange = () => store('jarvis-speak-here', $('speakHere').checked ? '1' : '0');
+  $('lang').onchange = () => { store('jarvis-lang', $('lang').value); if (rec) restart(); };
+
+  function status(t) { $('status').textContent = t; }
+
+  // ---------------------------------------------------------------- Jarvis's voice
+  // Edge's own natural voices (Ava, Emma, Jenny...) speak instantly, with no
+  // file to make first. Every answer and every announcement from the server is
+  // spoken here, on this PC.
+  const VOICES = [/Ava.*(Natural|Online)/i, /Emma.*(Natural|Online)/i, /Jenny.*(Natural|Online)/i, /Aria.*(Natural|Online)/i,
+    /Sonia.*(Natural|Online)/i, /Libby.*(Natural|Online)/i, /Google UK English Female/i, /Google US English/i, /Zira/i];
+  let voice = null;
+  function pickVoice() {
+    const all = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    for (const re of VOICES) { const v = all.find((x) => re.test(x.name)); if (v) { voice = v; break; } }
+    $('voiceName').textContent = voice ? voice.name.replace(/^Microsoft\s+/, '').replace(/\s*-\s*.*$/, '') : 'default voice';
+  }
+  if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  // On the Jarvis PC this page speaks; on a phone the TV speaks instead (tick to hear it here too).
+  const onPC = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  if (store('jarvis-speak-here') === '1' || (onPC && store('jarvis-speak-here') !== '0')) $('speakHere').checked = true;
+
+  let speaking = false;
+  function say(text) {
+    if (!text || !$('speakHere').checked || !window.speechSynthesis) return;
+    speaking = true;
+    if (rec) { try { rec.abort(); } catch {} }   // don't listen to ourselves
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) u.voice = voice;
+    u.lang = voice ? voice.lang : 'en-US';
+    u.rate = 1.05;
+    const done = () => { speaking = false; if (listening) setTimeout(listen, 200); };
+    u.onend = done; u.onerror = done;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
+
+  function chime() {
+    try {
+      const ac = chime.ac || (chime.ac = new (window.AudioContext || window.webkitAudioContext)());
+      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+      o.frequency.setValueAtTime(880, t); o.frequency.setValueAtTime(1320, t + 0.08);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.15, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.3);
+    } catch {}
+  }
+
+  // ---------------------------------------------------------------- talking to the server
+  async function send(text) {
+    text = text.trim();
+    if (!text) return;
+    status('Thinking…');
+    try {
+      await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    } catch (err) {
+      say('I cannot reach the Jarvis server.');
+      status('The Jarvis server is not answering');
+    }
+  }
+  $('type').onsubmit = (e) => { e.preventDefault(); send($('text').value); $('text').value = ''; };
+
+  // Answers and announcements, wherever they came from, arrive here.
+  let last = null;
+  function showLine(c) {
+    const li = document.createElement('li');
+    li.innerHTML = '<div class="you"></div><div class="jarvis"></div>';
+    li.firstChild.textContent = c.heard ? 'You: ' + c.heard : 'Jarvis, on its own:';
+    li.lastChild.textContent = c.reply;
+    $('convo').prepend(li);
+    while ($('convo').children.length > 30) $('convo').lastChild.remove();
+  }
+  async function poll() {
+    try {
+      const r = await (await fetch('/api/commands' + (last == null ? '' : '?after=' + last), { cache: 'no-store' })).json();
+      if (last == null) { last = r.last; return; }
+      for (const c of r.commands) {
+        last = Math.max(last, c.id);
+        if (c.action === 'thinking') { status('Thinking…'); continue; }
+        if (!c.reply) continue;
+        showLine(c);
+        say(c.reply);
+        status(listening ? (always() ? 'Listening for "Jarvis"' : 'Listening…') : 'Tap and speak');
+      }
+    } catch {}
+  }
+  setInterval(poll, 700);
+  poll();
+
+  // ---------------------------------------------------------------- the microphone
+  // Browsers only allow the microphone on a secure page: http://localhost on
+  // the Jarvis PC, or an https address. Speech recognition stops by itself
+  // after a silence or a network hiccup; it is restarted straight away (and a
+  // watchdog checks every few seconds), so Jarvis is always listening.
+  const always = () => $('always').checked;
+  let rec = null, listening = false, running = false, wokeAt = 0;
+
+  if (!SR || !window.isSecureContext) {
+    $('mic').disabled = true;
+    $('always').disabled = true;
+    status('Microphone not available here');
+    $('nomic').hidden = false;
+    $('nomic').textContent = !SR
+      ? 'This browser has no speech recognition. Use Edge or Chrome, or type below.'
+      : 'Browsers only allow the microphone on a secure page. Open http://localhost:5210/voice on the Jarvis PC. You can type below in the meantime.';
+  }
+
+  function listen() {
+    if (!listening || speaking || running) return;
+    rec = new SR();
+    rec.lang = $('lang').value;
+    rec.interimResults = true;
+    rec.continuous = always();
+    rec.onstart = () => { running = true; };
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i], t = r[0].transcript;
+        if (!r.isFinal) { interim += t; continue; }
+        $('interim').textContent = '';
+        if (!always()) { send(t); continue; }
+        // Always listening: act on what follows "Jarvis", or on the next
+        // sentence after someone says just "Jarvis".
+        if (WAKE.test(t)) {
+          chime();
+          const rest = t.replace(WAKE, ' ').trim();
+          if (rest.length > 1) send(rest); else { wokeAt = Date.now(); status('Yes?'); }
+        } else if (Date.now() - wokeAt < 8000) { wokeAt = 0; send(t); }
+      }
+      $('interim').textContent = interim;
+      if (WAKE.test(interim)) status('Listening to you…');
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stop(); status('Microphone blocked. Allow it in the browser settings.'); }
+    };
+    rec.onend = () => { running = false; if (listening && !speaking) setTimeout(listen, 150); };
+    try { rec.start(); } catch { running = false; }
+  }
+  function start() {
+    listening = true;
+    $('mic').classList.add('on');
+    status(always() ? 'Listening for "Jarvis"' : 'Listening…');
+    listen();
+  }
+  function stop() {
+    listening = false;
+    $('mic').classList.remove('on');
+    if (rec) { rec.onend = null; try { rec.abort(); } catch {} rec = null; }
+    running = false;
+    $('interim').textContent = '';
+    status(always() ? 'Paused' : 'Tap and speak');
+  }
+  function restart() { stop(); start(); }
+  setInterval(() => { if (listening && !speaking && !running) listen(); }, 4000);
+
+  $('mic').onclick = () => (listening ? stop() : start());
+  $('always').onchange = () => { store('jarvis-always', always() ? '1' : '0'); if (always()) restart(); else stop(); };
+  // ?listen in the address turns "Always listening" on straight away.
+  if (/[?&]listen/.test(location.search)) store('jarvis-always', '1');
+  if (store('jarvis-always') === '1' && SR && window.isSecureContext) { $('always').checked = true; start(); }
+})();
+</script>
+</body>
+</html>

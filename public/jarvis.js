@@ -1,0 +1,1165 @@
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
+if (!Object.fromEntries) Object.fromEntries = (pairs) => {
+  const o = {};
+  for (const [k, v] of pairs) o[k] = v;
+  return o;
+};
+if (!String.prototype.padStart) String.prototype.padStart = function(n, c) {
+  let s = String(this);
+  while (s.length < n) s = (c || " ") + s;
+  return s.slice(-Math.max(n, String(this).length));
+};
+if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach = Array.prototype.forEach;
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const stage = $("stage");
+  const W = 1920, H = 1080;
+  const POLL_MS = 5e3;
+  const eur = (n) => "\u20AC" + Math.round(n || 0).toLocaleString("en-IE");
+  const num = (n) => Math.round(n || 0).toLocaleString("en-IE");
+  const esc = (s) => String(s != null ? s : "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const PANEL_NAMES = { ach: "Goal", todo: "To do", site: "Our work", meta: "Claude usage", team: "FlowDesk team", pipe: "Pipeline", lead: "Lead finder", link: "Innolink", log: "Live log" };
+  const panels = Object.fromEntries([...document.querySelectorAll("[data-panel]")].map((el) => [el.dataset.panel, el]));
+  let S = null;
+  let lastEventId = null;
+  const localLog = [];
+  let stacked = false;
+  let SW = W;
+  let K = 1;
+  function layout() {
+    const w = window.innerWidth || document.documentElement.clientWidth;
+    const h = window.innerHeight || document.documentElement.clientHeight;
+    stacked = w < 700 && h > w;
+    if (stacked) document.body.classList.add("stack");
+    else document.body.classList.remove("stack");
+    if (stacked) {
+      stage.style.transform = stage.style.webkitTransform = "";
+      stage.style.width = "";
+      SW = stage.offsetWidth;
+    } else {
+      SW = Math.max(W, Math.round(H * w / h));
+      stage.style.width = SW + "px";
+      const k = Math.min(w / SW, h / H);
+      K = k;
+      const t = `translate(${Math.round((w - SW * k) / 2)}px, ${Math.round((h - H * k) / 2)}px) scale(${k})`;
+      stage.style.webkitTransform = t;
+      stage.style.transform = t;
+    }
+    fx.resize();
+    fitMonitor();
+  }
+  function fitMonitor() {
+    const desk = $("desk"), cap = $("site-caption");
+    if (!desk.clientWidth) return;
+    const bezel = 18, under = 20 + 7 + 12 + 26;
+    const w = Math.floor(stacked ? desk.clientWidth - bezel : Math.min(desk.clientWidth - bezel, (desk.clientHeight - bezel - under) * 16 / 9));
+    $("screen").style.width = w + "px";
+    $("screen").style.height = Math.round(w * 9 / 16) + "px";
+    cap.style.width = w + bezel + "px";
+  }
+  function tickClock() {
+    var _a;
+    const now = /* @__PURE__ */ new Date();
+    $("clock-time").textContent = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const hr = now.getHours();
+    $("greet").textContent = `${hr < 5 ? "Working late" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}, Innoweb`;
+    $("clock-date").textContent = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const cd = (_a = S == null ? void 0 : S.board) == null ? void 0 : _a.countdown;
+    if (!cd) return;
+    let left = Math.max(0, new Date(cd.target) - now);
+    const d = Math.floor(left / 864e5);
+    left -= d * 864e5;
+    const h = Math.floor(left / 36e5);
+    left -= h * 36e5;
+    const m = Math.floor(left / 6e4);
+    left -= m * 6e4;
+    const s = Math.floor(left / 1e3);
+    $("cd-d").textContent = String(d).padStart(2, "0");
+    $("cd-h").textContent = String(h).padStart(2, "0");
+    $("cd-m").textContent = String(m).padStart(2, "0");
+    $("cd-s").textContent = String(s).padStart(2, "0");
+    $("cd-label").textContent = cd.label || "";
+  }
+  const values = /* @__PURE__ */ new Map();
+  function roll(el, to, format = num) {
+    if (to == null || Number.isNaN(to)) {
+      el.textContent = "\u2014";
+      values.delete(el);
+      return;
+    }
+    const from = values.get(el);
+    if (from === to) return;
+    values.set(el, to);
+    if (from == null) {
+      el.textContent = format(to);
+      return;
+    }
+    const t0 = Date.now(), ms = 1400;
+    el.classList.add("changed");
+    const step = () => {
+      if (values.get(el) !== to) return;
+      const k = Math.min(1, (Date.now() - t0) / ms);
+      el.textContent = format(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(step);
+      else setTimeout(() => el.classList.remove("changed"), 2500);
+    };
+    requestAnimationFrame(step);
+  }
+  function render() {
+    const b = S.board || {};
+    const a = b.achievements || {};
+    roll($("rev-now"), a.revenue, eur);
+    $("rev-goal").textContent = eur(a.revenueGoal);
+    $("rev-goal2").textContent = eur(a.revenueGoal);
+    const pct = a.revenueGoal ? Math.min(1, (a.revenue || 0) / a.revenueGoal) : 0;
+    $("rev-bar").style.width = (pct * 100).toFixed(2) + "%";
+    $("rev-pct").textContent = `${(pct * 100).toFixed(pct < 0.1 && pct > 0 ? 1 : 0)}% of the way`;
+    const td = S.flowdesk && S.flowdesk.todo;
+    if (td) {
+      $("todo-count").textContent = `${td.open.length} open${td.doneToday ? `, ${td.doneToday} done today` : ""}`;
+      $("todo").innerHTML = td.open.map((t) => {
+        const meta = [t.urgent ? "Urgent" : "", t.who, t.doDate ? (/* @__PURE__ */ new Date(t.doDate + "T12:00")).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""].filter(Boolean).join(", ");
+        return `<li class="${t.urgent ? "urgent" : ""}"><span>${esc(t.title)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}</li>`;
+      }).join("") || "<li><span>Nothing left on the list</span></li>";
+    } else {
+      $("todo-count").textContent = "";
+      $("todo").innerHTML = "<li><span>Reading the FlowDesk to-do list</span></li>";
+    }
+    const pctCls = (v) => v >= 100 ? "full" : v >= 85 ? "warn" : "";
+    const todayShort = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const shortReset = (txt) => {
+      const r = String(txt || "").replace(/^resets\s+/, "");
+      return r.indexOf(todayShort) === 0 ? r.split(",").pop().trim() : r.split(",")[0];
+    };
+    const ring = (p) => {
+      const r = 24, c = 2 * Math.PI * r, v = Math.max(0, Math.min(100, p || 0));
+      const col = v >= 90 ? "#f87171" : "url(#gRing)";
+      return `<svg viewBox="0 0 58 58"><circle cx="29" cy="29" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/><circle cx="29" cy="29" r="${r}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(c * v / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 29 29)"/></svg>`;
+    };
+    $("tokens").innerHTML = (S.tokens || []).map((t) => t.used == null ? `<div class="cl off"><div class="cl-ring">${ring(0)}<b>\u2014</b></div><div class="cl-info"><div class="cl-name">${esc(t.account)}</div><div class="cl-sub">${esc(t.note || "")}</div></div></div>` : `<div class="cl"><div class="cl-ring">${ring(t.used)}<b>${Math.round(t.used)}%</b></div><div class="cl-info"><div class="cl-name">${esc(t.account)}</div>
+          <div class="cl-sub">session${t.note ? ", resets " + esc(shortReset(t.note)) : ""}</div><div class="cl-sub">week <b>${t.week == null ? "\u2014" : Math.round(t.week) + "%"}</b></div></div></div>`).join("") || '<div class="empty">Reading Claude usage</div>';
+    const fd = S.flowdesk || {};
+    if (fd.ok) {
+      $("team-total").textContent = `${fd.doneToday} today, ${fd.doneWeek} this week`;
+      const hhmm = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      $("team").innerHTML = fd.people.length ? fd.people.map((p) => `
+        <div class="person ${p.status === "working" ? "busy" : p.status === "todo" ? "idle" : "clear"}">
+          <div class="p-top"><div class="avatar">${esc(p.initials || p.name.slice(0, 2))}</div>
+            <div><div class="person-name">${esc(p.name)}</div><div class="p-state">${p.status === "working" ? `Working${p.since ? " since " + hhmm(p.since) : ""}` : p.status === "todo" ? "Not started" : "All done for today"}</div></div></div>
+          ${p.working.length ? `<div class="p-now"><small>Working on</small>${esc(p.working[0])}</div>` : p.status === "todo" ? `<div class="p-now late"><small>Not started</small>${esc(p.dueToday[0])}</div>` : `<div class="p-now quiet"><small>Last done</small>${p.lastDone ? esc(p.lastDone) : "Nothing yet today"}</div>`}
+          ${(() => {
+        const rest = p.dueToday.filter((t) => t !== p.working[0] && !(p.status === "todo" && t === p.dueToday[0]));
+        return rest.length ? `<div class="p-list"><small>Still to do today</small>${rest.slice(0, 3).map((t) => `<div>${esc(t)}</div>`).join("")}${rest.length > 3 ? `<div class="more">and ${rest.length - 3} more</div>` : ""}</div>` : `<div class="p-list"><small>Still to do today</small><div class="clear">Nothing else due today</div></div>`;
+      })()}
+          ${(() => {
+        const left = p.dueToday.length, total = p.done + left, pct2 = total ? Math.round(p.done / total * 100) : 0;
+        return `<div class="p-bar"><div class="p-bar-track"><i style="width:${pct2}%"></i></div><div class="p-bar-text"><span><b>${p.done}</b> done</span><span><b>${left}</b> left today</span><span class="wk">${p.week} this week</span></div></div>`;
+      })()}
+        </div>`).join("") : '<div class="empty">No active employees in FlowDesk.</div>';
+    } else {
+      $("team-total").textContent = "";
+      $("team").innerHTML = fd.configured ? '<div class="empty">FlowDesk is not answering. Retrying every 30 seconds.</div>' : `<div class="empty">Waiting for FlowDesk access.<br>Add <code>FLOWDESK_SERVICE_ROLE_KEY</code>, or an admin <code>FLOWDESK_EMAIL</code> and <code>FLOWDESK_PASSWORD</code>, to Jarvis's .env file.</div>`;
+    }
+    const lf = S.leads || {};
+    if (lf.ok) {
+      roll($("lf-sent"), lf.sitesSentToday);
+      roll($("lf-wa"), lf.whatsappToday);
+      roll($("lf-new"), lf.leadsToday);
+      const tr = lf.tracker || {};
+      const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+      const stuck = tr.queuePaused || tr.buildPaused;
+      const now = !tr.online ? `Mac offline since ${hhmm(tr.lastSeen)}` : tr.claudeLimited ? `Out of Claude usage${tr.claudeResets ? ` until ${hhmm(tr.claudeResets)}` : ""}` : stuck ? `Stuck: ${stuck.replace(/^The finder /, "the finder ")}` : tr.building && tr.building.length ? `Building ${tr.building.length === 1 ? "a website for " + tr.building[0] : tr.building.length + " websites: " + tr.building.slice(0, 2).join(", ")}` : tr.finder ? tr.finder.charAt(0).toUpperCase() + tr.finder.slice(1) : "Running";
+      $("lf-now").textContent = now;
+      $("lf-tracker").className = "tracker" + (!tr.online ? " down" : stuck || tr.claudeLimited ? " stuck" : "");
+      $("lf-wa-line").textContent = !tr.waOn ? "WhatsApp sender is off" : `WhatsApp: ${tr.waSentToday} sent today${tr.waFailedToday ? `, ${tr.waFailedToday} failed` : ""}${tr.waNext ? `, next at ${hhmm(tr.waNext.at)}${tr.waNext.name ? " to " + tr.waNext.name : ""}` : ", done for today"}`;
+      roll($("lf-replies"), lf.repliesToday);
+      roll($("lf-built"), lf.builtToday);
+      roll($("lf-total"), lf.leads);
+      const week = lf.week || [];
+      const most = Math.max(1, ...week.map((d) => d.whatsapps));
+      $("lf-week").innerHTML = week.map((d, k) => {
+        const today = k === week.length - 1;
+        const label = today ? "Today" : (/* @__PURE__ */ new Date(d.date + "T12:00")).toLocaleDateString("en-GB", { weekday: "short" });
+        return `<div class="wk${today ? " today" : ""}">${today || d.whatsapps === most ? `<em>${d.whatsapps}</em>` : ""}<i style="height:${Math.max(4, d.whatsapps / most * 100)}%"></i><span>${label}</span></div>`;
+      }).join("");
+      const pl = lf.pipeline;
+      if (pl) {
+        const stages = [["Contacted", pl.sent], ["They replied", pl.replied], ["We answered", pl.answered], ["Follow-up", pl.followUp], ["Won", pl.won]];
+        drawPipeline(pl);
+        $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div><b>${esc(r.name)}</b> ${esc(r.said)}</div>`).join("") : "<div>No WhatsApp replies yet</div>";
+      }
+    } else {
+      $("lf-now").textContent = lf.error ? `Not connected: ${lf.error}` : "Connecting to the lead finder";
+      $("lf-tracker").className = "tracker down";
+    }
+    const il = S.innolink || {};
+    if (il.ok) {
+      roll($("il-views"), il.views);
+      roll($("il-clicks"), il.clicks);
+      $("il-rate").textContent = il.views ? Math.round(il.clicks / il.views * 100) + "%" : "0%";
+      const top = Math.max(1, ...il.clients.map((c) => c.views));
+      const rows = il.clients.map((c) => `<div class="link-row"><span class="link-name">${esc(c.name)}</span><span>${num(c.views)}</span><span>${num(c.clicks)}</span><i><u style="width:${(c.views / top * 100).toFixed(1)}%"></u></i></div>`).join("");
+      linkList.set(rows);
+    } else {
+      for (const id of ["il-views", "il-clicks"]) roll($(id), null);
+      $("il-rate").textContent = "\u2014";
+      const rows = (b.innolinkClients || []).map((n) => `<div class="link-row"><span class="link-name">${esc(n)}</span><span>\u2014</span><span>\u2014</span></div>`).join("");
+      linkList.set(rows, il.configured ? "Innolink is not answering. Retrying." : "Add INNOLINK_SERVICE_ROLE_KEY to .env for live opens and clicks.");
+    }
+    const failing = S.failing || {};
+    const NAMES = { leads: "The lead finder", flowdesk: "FlowDesk", innolink: "Innolink", board: "The board" };
+    const down = Object.keys(failing).map((k) => `${NAMES[k] || k} is offline`);
+    for (const site of S.board && S.board.sites || []) {
+      const h = S.sites && S.sites[site.url];
+      if (h && !h.ok) down.push(`${site.name} is down`);
+    }
+    showOffline(down);
+    rotator.sync();
+    if ($("wa-view").className.indexOf("show") >= 0) showWhatsApp(true);
+    renderLog();
+  }
+  function showOffline(list) {
+    const el = $("offline");
+    if (!list.length) {
+      el.className = "";
+      return;
+    }
+    el.innerHTML = `<b>Offline</b>${list.map(esc).join(", ")}`;
+    el.className = "show";
+  }
+  function drawPipeline(pl) {
+    const box = $("funnel"), W2 = box.offsetWidth || 400, H2 = box.offsetHeight || 210;
+    const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
+    const sent = pl.sent || 0, replied = pl.replied || 0, answered = pl.answered || 0, follow = pl.followUp || 0, won = pl.won || 0;
+    const no = Math.min(pl.saidNo || 0, Math.max(0, replied - answered));
+    const nodes = {
+      sent: { n: sent, label: "Contacted", color: "#94a3b8" },
+      replied: { n: replied, label: "Replied", color: "#3b82f6" },
+      silent: { n: Math.max(0, sent - replied), label: "No reply yet", color: "#f87171" },
+      answered: { n: answered, label: "We answered", color: "#8b5cf6" },
+      waiting: { n: Math.max(0, replied - answered - no), label: "Waiting on us", color: "#fb923c" },
+      no: { n: no, label: "Said no", color: "#f87171" },
+      follow: { n: follow, label: "Follow-up", color: "#38bdf8" },
+      won: { n: won, label: "Won", color: "#34d399" }
+    };
+    const links = [["sent", "replied"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
+    const cols = [["sent"], ["replied", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]];
+    const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
+    const step = (W2 - NODE - LABEL) / (cols.length - 1);
+    cols.forEach((ids, c) => {
+      let y = 0;
+      ids.forEach((id) => {
+        const nd = nodes[id];
+        nd.x = Math.round(c * step);
+        nd.h = Math.max(3, nd.n * scale);
+        nd.y = y;
+        nd.out = y;
+        nd.in = y;
+        y += Math.max(nd.h, SLOT) + GAP;
+      });
+    });
+    let paths = "";
+    for (const [a, b] of links) {
+      const A = nodes[a], B = nodes[b], v = B.n * scale;
+      if (!B.n) continue;
+      const x0 = A.x + NODE, x1 = B.x, ya = A.out, yb = B.in, mx = (x0 + x1) / 2;
+      paths += `<path d="M${x0},${ya} C${mx},${ya} ${mx},${yb} ${x1},${yb} L${x1},${yb + v} C${mx},${yb + v} ${mx},${ya + v} ${x0},${ya + v} Z" fill="${B.color}" fill-opacity="0.3"/>`;
+      A.out += v;
+      B.in += v;
+    }
+    let text = "";
+    for (const id in nodes) {
+      const nd = nodes[id], parent = links.filter((l) => l[1] === id)[0];
+      paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
+      const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round(nd.n / nodes[parent[0]].n * 100)}%</i>` : "";
+      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H2 - SLOT, nd.y + nd.h / 2 - 16));
+      text += `<div class="sk${nd.n ? "" : " none"}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
+    }
+    box.innerHTML = `<svg width="${W2}" height="${H2}" viewBox="0 0 ${W2} ${H2}">${paths}</svg><div class="sk-labels">${text}</div>`;
+    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 1).map((r) => `<div class="rp"><b>${esc(r.name)}</b>${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
+  }
+  function compact(n) {
+    if (n == null) return "\u2014";
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e4) return Math.round(n / 1e3) + "k";
+    return num(n);
+  }
+  const linkList = (() => {
+    const box = $("il-list");
+    let html = "";
+    const head = '<div class="link-row head"><span class="link-name">Page</span><span>Opens</span><span>Clicks</span></div>';
+    box.innerHTML = head + '<div class="link-scroll"><div class="link-track"></div></div>';
+    const track = box.querySelector(".link-track");
+    return {
+      set(rows, note2) {
+        const next = rows + (note2 ? `<div class="empty" style="font-size:14px">${esc(note2)}</div>` : "");
+        if (next !== html) {
+          html = next;
+          track.innerHTML = next;
+        }
+      }
+    };
+  })();
+  let logKey = "";
+  const SOURCE_NAMES = { flowdesk: "FlowDesk", leads: "Leads", innolink: "Innolink", sites: "Sites", board: "Board", meta: "Meta", tokens: "Usage", voice: "You", jarvis: "Jarvis", test: "Test" };
+  function renderLog() {
+    const server = ((S == null ? void 0 : S.events) || []).map((e) => __spreadProps(__spreadValues({}, e), { t: Date.parse(e.at) }));
+    const all = [...server, ...localLog].sort((x, y) => y.t - x.t).slice(0, 18);
+    const key = all.map((e) => {
+      var _a;
+      return (_a = e.id) != null ? _a : e.t;
+    }).join(",");
+    if (key === logKey) return;
+    logKey = key;
+    const fresh = Date.now() - 15e3;
+    $("log").innerHTML = all.map((e) => {
+      const cls = e.level === "jarvis" ? "jarvis" : e.level;
+      const time = new Date(e.t).toLocaleTimeString("en-GB", { hour12: false });
+      return `<li class="${cls}${e.level === "error" && e.t > fresh ? " fresh" : ""}"><time>${time.slice(0, 5)}</time><b class="src src-${esc(e.source || "jarvis")}">${esc(SOURCE_NAMES[e.source] || e.source || "jarvis")}</b><span>${esc(e.text)}</span></li>`;
+    }).join("");
+  }
+  function note(text) {
+    localLog.push({ level: "jarvis", text, t: Date.now() });
+    if (localLog.length > 40) localLog.shift();
+    renderLog();
+  }
+  const rotator = (() => {
+    const view = $("site-view");
+    const players = [0, 1].map(() => {
+      const v = document.createElement("video");
+      v.muted = true;
+      v.setAttribute("muted", "");
+      v.setAttribute("playsinline", "");
+      v.preload = "auto";
+      view.appendChild(v);
+      return v;
+    });
+    const pic = new Image();
+    pic.alt = "";
+    view.appendChild(pic);
+    const STREAM = /Tizen|SMART-TV|Web0S|NetCast/i.test(navigator.userAgent) || /[?&]stream/.test(location.search);
+    const reel = new Image();
+    reel.alt = "";
+    view.appendChild(reel);
+    reel.onerror = () => report("picture stream failed for " + reel.getAttribute("src"));
+    players.forEach((v) => {
+      v.onerror = () => report("video error " + (v.error && v.error.code) + " for " + v.getAttribute("src"));
+    });
+    const wait = document.createElement("div");
+    wait.className = "browser-wait";
+    wait.textContent = "Filming our sites";
+    view.appendChild(wait);
+    let list = [], index = -1, front = 0, timer = null, holdUntil = 0;
+    const playable = () => list.filter((d) => d.film || S && S.shots && S.shots[d.url]);
+    function label(d) {
+      const h = S && S.sites && S.sites[d.url];
+      $("site-name").textContent = d.name;
+      $("site-url").textContent = d.url.replace(/^https?:\/\//, "");
+      $("site-health").className = "dot " + (h ? h.ok ? "ok" : "bad" : "ok");
+      $("site-count").textContent = `${index + 1} of ${playable().length}`;
+    }
+    function picOf(d) {
+      const shot = S && S.shots && S.shots[d.url];
+      return shot ? typeof shot === "string" ? shot : shot.small || shot.full : null;
+    }
+    function prime(d) {
+      const back = players[1 - front];
+      if (d && d.film && back.getAttribute("src") !== d.film) {
+        back.setAttribute("src", d.film);
+        back.load();
+      }
+    }
+    function go(i) {
+      const all = playable();
+      if (!all.length) return;
+      clearTimeout(timer);
+      index = (i % all.length + all.length) % all.length;
+      const d = all[index];
+      wait.style.display = "none";
+      label(d);
+      if (d.film) {
+        if (STREAM) {
+          const slug = (d.film.match(/\/demos\/([a-z0-9-]+)\./) || [])[1];
+          reel.src = "/film-stream/" + slug + "?t=" + Date.now();
+          reel.className = "show";
+          pic.className = "";
+          players[0].className = players[1].className = "";
+          timer = setTimeout(() => go(index + 1), 11e3);
+          return;
+        }
+        const v = players[1 - front];
+        if (v.getAttribute("src") !== d.film) {
+          v.setAttribute("src", d.film);
+          v.load();
+        }
+        v.currentTime = 0;
+        const p = v.play();
+        if (p && p.catch) p.catch(() => {
+        });
+        v.className = "show";
+        players[front].className = "";
+        pic.className = "";
+        players[front].pause();
+        front = 1 - front;
+        v.onended = () => {
+          if (holdUntil <= Date.now()) go(index + 1);
+          else {
+            v.currentTime = 0;
+            v.play();
+          }
+        };
+        timer = setTimeout(() => go(index + 1), 16e3);
+      } else {
+        pic.src = picOf(d);
+        pic.className = "show";
+        reel.className = "";
+        players[0].className = players[1].className = "";
+        players[front].pause();
+        timer = setTimeout(() => go(index + 1), 6e3);
+      }
+      prime(all[(index + 1) % all.length]);
+    }
+    return {
+      current: () => playable()[index],
+      next() {
+        holdUntil = 0;
+        go(index + 1);
+      },
+      previous() {
+        holdUntil = 0;
+        go(index - 1);
+      },
+      // Show one site and stay on it for a while ("pull up Okulya").
+      show(url) {
+        const i = playable().findIndex((d) => d.url.replace(/\/$/, "") === String(url).replace(/\/$/, ""));
+        if (i >= 0) {
+          holdUntil = Date.now() + 3e4;
+          go(i);
+        }
+      },
+      sync() {
+        list = S && S.demos || [];
+        if (index === -1 && playable().length) go(0);
+        else if (index >= 0) $("site-count").textContent = `${index + 1} of ${playable().length}`;
+      }
+    };
+  })();
+  function showWhatsApp(on) {
+    const el = $("wa-view");
+    el.className = on ? "wa-view show" : "wa-view";
+    if (!on) {
+      const d = rotator.current();
+      if (d) $("site-name").textContent = d.name;
+      return;
+    }
+    $("site-name").textContent = "WhatsApp";
+    const wa = S && S.whatsapp;
+    $("wa-chat").textContent = wa && wa.chat ? wa.chat : wa && wa.qr ? "scan to link" : "starting";
+    $("wa-msgs").innerHTML = wa && wa.ready && wa.messages && wa.messages.length ? wa.messages.slice(-12).map((m) => `<div class="wa-m${m.mine ? " mine" : ""}"><b>${esc(m.from)}</b>${esc(m.text)}<i>${esc(m.time || "")}</i></div>`).join("") : wa && wa.qr ? `<div class="wa-qr"><img src="${wa.qr}" alt=""><div>On the phone: WhatsApp, Settings, <b>Linked devices</b>, <b>Link a device</b>, then scan this code.</div></div>` : wa && wa.ready ? `<div class="wa-empty">${esc(wa.detail || "Linked. Waiting for the group chat.")}</div>` : '<div class="wa-empty">WhatsApp is starting on the Jarvis computer.</div>';
+  }
+  function report(msg) {
+    try {
+      const x = new XMLHttpRequest();
+      x.open("POST", "/api/client-log");
+      x.setRequestHeader("Content-Type", "application/json");
+      x.send(JSON.stringify({ msg: msg + " | " + navigator.userAgent.slice(-60) }));
+    } catch (err) {
+    }
+  }
+  const fx = (() => {
+    const canvas = $("fx");
+    const ctx = canvas.getContext("2d");
+    const parts = [];
+    const COLORS = ["#3b82f6", "#8b5cf6", "#38bdf8", "#f1f5f9", "#34d399", "#fb923c"];
+    let running = false;
+    function resize() {
+      canvas.width = stacked ? stage.offsetWidth : SW;
+      canvas.height = stacked ? stage.offsetHeight : H;
+      canvas.style.width = canvas.width + "px";
+      canvas.style.height = canvas.height + "px";
+    }
+    function confetti(x, y, n = 160, spread = 1) {
+      for (let i = 0; i < n; i++) {
+        const a = rand(-Math.PI, 0), v = rand(6, 17) * spread;
+        parts.push({ kind: "c", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 4, w: rand(7, 14), h: rand(4, 8), r: rand(0, 6), vr: rand(-0.3, 0.3), c: pick(COLORS), life: rand(160, 260) });
+      }
+      start();
+    }
+    function rain(n = 220) {
+      for (let i = 0; i < n; i++) parts.push({ kind: "c", x: rand(0, canvas.width), y: rand(-400, -10), vx: rand(-2, 2), vy: rand(2, 6), w: rand(7, 14), h: rand(4, 8), r: rand(0, 6), vr: rand(-0.2, 0.2), c: pick(COLORS), life: 420 });
+      start();
+    }
+    function rocket(x) {
+      parts.push({ kind: "r", x, y: canvas.height + 10, vx: rand(-1.5, 1.5), vy: rand(-19, -14), c: pick(COLORS), life: 200 });
+      start();
+    }
+    function burst(x, y, c) {
+      const n = 90;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * Math.PI * 2, v = rand(3, 9);
+        parts.push({ kind: "s", x, y, px: x, py: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, c: Math.random() < 0.25 ? "#ffffff" : c, life: rand(60, 100), max: 100 });
+      }
+      sound.pop();
+    }
+    function fireworks(seconds = 6) {
+      const end = performance.now() + seconds * 1e3;
+      const launch = () => {
+        if (performance.now() > end) return;
+        rocket(rand(canvas.width * 0.1, canvas.width * 0.9));
+        setTimeout(launch, rand(250, 600));
+      };
+      launch();
+    }
+    function start() {
+      if (!running) {
+        running = true;
+        requestAnimationFrame(frame);
+      }
+    }
+    function frame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        p.life--;
+        if (p.kind === "c") {
+          p.vx *= 0.985;
+          p.vy = p.vy * 0.985 + 0.32;
+          p.x += p.vx + Math.sin(p.life / 9) * 0.6;
+          p.y += p.vy;
+          p.r += p.vr;
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.r);
+          ctx.fillStyle = p.c;
+          ctx.globalAlpha = Math.min(1, p.life / 40);
+          ctx.fillRect(-p.w / 2, -p.h / 2 * Math.abs(Math.cos(p.life / 6)), p.w, p.h * Math.abs(Math.cos(p.life / 6)) + 1);
+          ctx.restore();
+        } else if (p.kind === "r") {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.22;
+          ctx.fillStyle = p.c;
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3, 0, 7);
+          ctx.fill();
+          ctx.globalAlpha = 0.4;
+          ctx.fillRect(p.x - 1, p.y, 2, 22);
+          if (p.vy >= -1.5) {
+            burst(p.x, p.y, p.c);
+            p.life = 0;
+          }
+        } else {
+          p.px = p.x;
+          p.py = p.y;
+          p.vx *= 0.96;
+          p.vy = p.vy * 0.96 + 0.08;
+          p.x += p.vx;
+          p.y += p.vy;
+          ctx.strokeStyle = p.c;
+          ctx.globalAlpha = Math.max(0, p.life / p.max);
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(p.px - p.vx * 2, p.py - p.vy * 2);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+        }
+        if (p.life <= 0 || p.y > canvas.height + 60) parts.splice(i, 1);
+      }
+      ctx.globalAlpha = 1;
+      if (parts.length) requestAnimationFrame(frame);
+      else {
+        running = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+    return { resize, confetti, rain, fireworks };
+  })();
+  const sound = /* @__PURE__ */ (() => {
+    let ac = null;
+    const ok = () => ac && ac.state !== "suspended" && ac.state !== "closed";
+    function arm() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!ac && Ctx) ac = new Ctx();
+        if (ac && ac.resume && ac.state === "suspended") ac.resume().catch(() => {
+        });
+      } catch (err) {
+      }
+    }
+    function tone(freq, t0, dur, type = "sine", vol = 0.18) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type;
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(1e-4, t0 + dur);
+      o.connect(g).connect(ac.destination);
+      o.start(t0);
+      o.stop(t0 + dur + 0.05);
+    }
+    return {
+      arm,
+      chime() {
+        if (!ok()) return;
+        const t = ac.currentTime;
+        [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => tone(f, t + i * 0.11, 0.6, "triangle", 0.16));
+      },
+      pop() {
+        if (!ok()) return;
+        const t = ac.currentTime, len = 0.25;
+        const buf = ac.createBuffer(1, ac.sampleRate * len, ac.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+        const src = ac.createBufferSource(), g = ac.createGain();
+        g.gain.value = 0.12;
+        src.buffer = buf;
+        src.connect(g).connect(ac.destination);
+        src.start(t);
+      },
+      siren(seconds = 8) {
+        if (!ok()) return;
+        const t = ac.currentTime;
+        const o = ac.createOscillator(), g = ac.createGain(), lfo = ac.createOscillator(), depth = ac.createGain();
+        o.type = "sawtooth";
+        o.frequency.value = 760;
+        lfo.type = "square";
+        lfo.frequency.value = 1.6;
+        depth.gain.value = 220;
+        lfo.connect(depth).connect(o.frequency);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.16, t + 0.05);
+        g.gain.setValueAtTime(0.16, t + seconds - 0.3);
+        g.gain.linearRampToValueAtTime(0, t + seconds);
+        o.connect(g).connect(ac.destination);
+        o.start(t);
+        lfo.start(t);
+        o.stop(t + seconds);
+        lfo.stop(t + seconds);
+      }
+    };
+  })();
+  const spider = (() => {
+    const el = $("spider");
+    const LEGS = [
+      // attach, knee, foot (left side, facing up); the right side mirrors these
+      [[-14, -16], [-34, -36], [-40, -60]],
+      [[-21, -6], [-47, -18], [-60, -32]],
+      [[-21, 6], [-47, 14], [-60, 30]],
+      [[-14, 16], [-32, 34], [-40, 58]]
+    ];
+    const legSvg = [];
+    let svg = '<svg viewBox="-70 -70 140 140">';
+    svg += '<defs><linearGradient id="beamGrad" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#60a5fa" stop-opacity="0.5"/><stop offset="1" stop-color="#60a5fa" stop-opacity="0"/></linearGradient></defs>';
+    svg += '<polygon class="beam" points="-5,-6 5,-6 70,-230 -70,-230" fill="url(#beamGrad)"/>';
+    LEGS.forEach((leg, i) => {
+      for (const side of [-1, 1]) {
+        const [a, k, f] = leg.map(([x, y]) => [x * -side, y]);
+        const d = `M0,0 L${k[0] - a[0]},${k[1] - a[1]} L${f[0] - a[0]},${f[1] - a[1]}`;
+        svg += `<g transform="translate(${a[0]},${a[1]})"><g data-leg="${legSvg.length}"><path d="${d}" fill="none" stroke="#f1ece2" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${f[0] - a[0]}" cy="${f[1] - a[1]}" r="2.6" fill="#f1ece2"/></g></g>`;
+        legSvg.push({ i, side });
+      }
+    });
+    svg += '<g stroke="#f1ece2" stroke-width="3" stroke-linecap="round">' + [[-10, 34], [-5, 39], [0, 42], [5, 39], [10, 34]].map(([x, y]) => `<line x1="${x}" y1="22" x2="${x}" y2="${y}"/>`).join("") + "</g>";
+    svg += '<polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8" fill="#05090d" stroke="#f1ece2" stroke-width="3" stroke-linejoin="round"/>';
+    svg += '<g fill="none" stroke="#f1ece2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/><path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/></g>';
+    svg += '<circle class="eye" cx="-3.6" cy="-3" r="2.6"/><circle class="eye" cx="3.6" cy="-3" r="2.6"/>';
+    svg += "</svg>";
+    el.innerHTML = svg;
+    const legEls = [...el.querySelectorAll("[data-leg]")];
+    const s = { x: 960, y: -80, angle: 180, want: 180, hop: 0, spin: 0, shake: 0, phase: 0, moving: false, target: null };
+    let last = performance.now();
+    function frame(t) {
+      var _a2, _b, _c;
+      const dt = Math.min(0.05, (t - last) / 1e3);
+      last = t;
+      if (s.target) {
+        const dx = s.target.x - s.x, dy = s.target.y - s.y, dist = Math.hypot(dx, dy);
+        if (dist < 3 || ((_b = (_a2 = s.target).abort) == null ? void 0 : _b.call(_a2))) {
+          const done = s.target.done;
+          s.target = null;
+          s.moving = false;
+          done();
+        } else {
+          const step = Math.min(dist, s.target.speed * dt);
+          s.x += dx / dist * step;
+          s.y += dy / dist * step;
+          s.want = Math.atan2(dx, -dy) * 180 / Math.PI;
+          s.moving = true;
+        }
+      }
+      let diff = (s.want - s.angle + 540) % 360 - 180;
+      s.angle += diff * Math.min(1, dt * 8);
+      s.phase += dt * (s.moving ? (((_c = s.target) == null ? void 0 : _c.speed) || 300) / 22 : 0);
+      legEls.forEach((g, n) => {
+        const { i, side } = legSvg[n];
+        const gait = (i + (side > 0 ? 1 : 0)) % 2 ? 0 : Math.PI;
+        const a = s.moving ? Math.sin(s.phase + gait) * 16 : Math.sin(t / 900 + n) * 2;
+        g.setAttribute("transform", `rotate(${a * side})`);
+      });
+      const jx = s.shake ? rand(-s.shake, s.shake) : 0, jy = s.shake ? rand(-s.shake, s.shake) : 0;
+      el.style.transform = `translate(${s.x + jx}px, ${s.y - s.hop + jy}px) rotate(${s.angle + s.spin}deg) scale(${1 + s.hop / 160})`;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return {
+      state: s,
+      el,
+      walkTo(x, y, speed = 260, abort) {
+        return new Promise((done) => {
+          s.target = { x, y, speed, abort, done };
+        });
+      },
+      face(deg) {
+        s.want = deg;
+      },
+      hop(times = 3, spin = true) {
+        return __async(this, null, function* () {
+          for (let n = 0; n < times; n++) {
+            const t0 = performance.now(), dur = 520;
+            yield new Promise((r) => {
+              const step = (t) => {
+                const k = Math.min(1, (t - t0) / dur);
+                s.hop = Math.sin(k * Math.PI) * 70;
+                if (spin) s.spin = k * 360;
+                if (k < 1) requestAnimationFrame(step);
+                else {
+                  s.hop = 0;
+                  s.spin = 0;
+                  r();
+                }
+              };
+              requestAnimationFrame(step);
+            });
+          }
+        });
+      }
+    };
+  })();
+  function spotOn(key, centre = false) {
+    const p = panels[key];
+    return { x: p.offsetLeft + p.offsetWidth * (centre ? 0.5 : rand(0.22, 0.78)), y: p.offsetTop + 8 };
+  }
+  const queue = [];
+  const interrupted = () => queue.length > 0;
+  function patrol(lastKey) {
+    return __async(this, null, function* () {
+      if (zoomed) {
+        yield spider.walkTo(SW / 2, 96, 300, interrupted);
+        spider.face(180);
+        yield sleep(500);
+        return lastKey;
+      }
+      const keys = Object.keys(panels).filter((k) => k !== lastKey);
+      const key = pick(keys);
+      const pt = spotOn(key);
+      yield spider.walkTo(pt.x, pt.y, rand(220, 320), interrupted);
+      if (interrupted()) return key;
+      spider.face(180);
+      yield sleep(500);
+      const panel = panels[key];
+      panel.classList.add("scanning");
+      spider.el.classList.add("scanning");
+      const scan = document.createElement("div");
+      scan.className = "scan";
+      scan.innerHTML = '<div class="scan-line"></div><div class="scan-tag"></div>';
+      panel.appendChild(scan);
+      const tag = scan.lastChild;
+      const total = rand(4500, 6500), t0 = performance.now();
+      while (performance.now() - t0 < total && !interrupted()) {
+        const k = Math.min(1, (performance.now() - t0) / total);
+        tag.textContent = `Looking at ${PANEL_NAMES[key].toLowerCase()} ${Math.round(k * 100)}%`;
+        yield sleep(80);
+      }
+      if (!interrupted()) {
+        const msg = insight(key);
+        tag.textContent = msg || "All good";
+        scans++;
+        if (msg && scans % 4 === 0) note(msg);
+        yield sleep(1800);
+      }
+      scan.remove();
+      panel.classList.remove("scanning");
+      spider.el.classList.remove("scanning");
+      if (!interrupted() && ["ach", "lead", "link", "team"].includes(key) && Math.random() < 0.18) {
+        const r = spider.state;
+        fx.confetti(r.x, r.y, 40, 0.6);
+        yield spider.hop(1);
+      }
+      return key;
+    });
+  }
+  let scans = 0;
+  function insight(key) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    if (!S) return "";
+    const a = ((_a = S.board) == null ? void 0 : _a.achievements) || {};
+    const days = ((_b = S.board) == null ? void 0 : _b.countdown) ? Math.max(0, Math.ceil((new Date(S.board.countdown.target) - Date.now()) / 864e5)) : null;
+    switch (key) {
+      case "ach":
+        return `${eur(a.revenue)} of ${eur(a.revenueGoal)}, ${S.flowdesk && S.flowdesk.todo ? S.flowdesk.todo.open.length + " to do" : ""}`;
+      case "pipe": {
+        const pl = S.leads && S.leads.pipeline;
+        return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.won} won` : "";
+      }
+      case "site": {
+        const c = rotator.current();
+        const h = c && ((_c = S.sites) == null ? void 0 : _c[c.url]);
+        return c ? `${c.name} ${h ? h.ok ? `answers in ${h.ms} ms` : "is not answering" : "online"}` : "";
+      }
+      case "meta": {
+        const t = (S.tokens || []).filter((x) => x.used != null);
+        return t.length ? t.map((x) => `${x.account} ${Math.round(x.used)}%`).join(", ") : "Claude usage";
+      }
+      case "team":
+        return ((_d = S.flowdesk) == null ? void 0 : _d.ok) ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : "FlowDesk not connected";
+      case "lead":
+        return ((_e = S.leads) == null ? void 0 : _e.ok) ? `${num(S.leads.sitesSentToday)} sites sent, ${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.leadsToday)} new leads today` : "";
+      case "link":
+        return ((_f = S.innolink) == null ? void 0 : _f.ok) ? `${num(S.innolink.views)} opens, ${num(S.innolink.clicks)} clicks on ${S.innolink.clients.length} pages` : `${(((_g = S.board) == null ? void 0 : _g.innolinkClients) || []).length} Innolink pages`;
+      case "log": {
+        const errs = (S.events || []).filter((e) => e.level === "error" && Date.now() - Date.parse(e.at) < 864e5).length;
+        return errs ? `${errs} alert${errs > 1 ? "s" : ""} in the last 24 hours` : "No alerts in the last 24 hours";
+      }
+    }
+    return "";
+  }
+  const banner = $("banner");
+  function showBanner(title, text, danger, ms) {
+    banner.className = danger ? "danger" : "";
+    banner.innerHTML = `<div class="b-title">${esc(title)}</div><div class="b-text">${esc(text)}</div>`;
+    requestAnimationFrame(() => banner.classList.add("show"));
+    setTimeout(() => banner.classList.remove("show"), ms);
+  }
+  function celebrate(e) {
+    return __async(this, null, function* () {
+      unzoom();
+      const key = panels[e.panel] ? e.panel : "ach";
+      const panel = panels[key];
+      const pt = spotOn(key, true);
+      yield spider.walkTo(pt.x, pt.y, 760);
+      spider.face(180);
+      panel.classList.add("party");
+      sound.chime();
+      if (e.big) {
+        showBanner(e.title || "ACHIEVEMENT", e.text, false, 7e3);
+        fx.confetti(pt.x, pt.y, 260, 1.2);
+        fx.rain(240);
+        fx.fireworks(6);
+        yield spider.hop(4);
+        fx.confetti(pt.x, pt.y, 160, 1);
+        yield spider.hop(3);
+      } else {
+        fx.confetti(pt.x, pt.y, 90, 0.8);
+        yield spider.hop(2);
+      }
+      setTimeout(() => panel.classList.remove("party"), e.big ? 4e3 : 1500);
+    });
+  }
+  const alarmEl = $("alarm");
+  function alarm(e) {
+    return __async(this, null, function* () {
+      unzoom();
+      const key = panels[e.panel] ? e.panel : "log";
+      const panel = panels[key];
+      spider.el.classList.add("angry");
+      alarmEl.classList.add("on");
+      panel.classList.add("danger");
+      sound.siren(8);
+      showBanner("ALERT", e.text, true, 9e3);
+      const pt = spotOn(key, true);
+      yield spider.walkTo(pt.x, pt.y, 900);
+      spider.face(180);
+      spider.state.shake = 4;
+      yield sleep(7e3);
+      spider.state.shake = 0;
+      alarmEl.classList.remove("on");
+      spider.el.classList.remove("angry");
+      setTimeout(() => panel.classList.remove("danger"), 2e4);
+    });
+  }
+  function show() {
+    return __async(this, null, function* () {
+      let lastKey = null;
+      yield spider.walkTo(SW / 2, 140, 300);
+      for (; ; ) {
+        if (queue.length) {
+          const i = queue.findIndex((e2) => e2.level === "error");
+          const e = queue.splice(i >= 0 ? i : 0, 1)[0];
+          try {
+            yield e.level === "error" ? alarm(e) : celebrate(e);
+          } catch (err) {
+            console.error(err);
+          }
+          continue;
+        }
+        try {
+          lastKey = yield patrol(lastKey);
+        } catch (err) {
+          console.error(err);
+          yield sleep(1e3);
+        }
+      }
+    });
+  }
+  let zoomed = null, zoomTimer = null;
+  function setTransform(el, t) {
+    el.style.webkitTransform = t;
+    el.style.transform = t;
+  }
+  function zoom(key, seconds) {
+    const p = panels[key];
+    if (!p || stacked) return;
+    if (zoomed && zoomed !== key) unzoom();
+    const tx = 20, ty = 108, tw = SW - 40, th = H - 128;
+    const k = Math.min(tw / p.offsetWidth, th / p.offsetHeight);
+    setTransform(p, `translate(${Math.round(tx + tw / 2 - (p.offsetLeft + p.offsetWidth / 2))}px, ${Math.round(ty + th / 2 - (p.offsetTop + p.offsetHeight / 2))}px) scale(${k.toFixed(3)})`);
+    p.classList.add("zoomed");
+    $("dim").classList.add("on");
+    zoomed = key;
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(unzoom, (seconds || 120) * 1e3);
+  }
+  function unzoom() {
+    if (!zoomed) return;
+    const p = panels[zoomed];
+    setTransform(p, "");
+    $("dim").classList.remove("on");
+    setTimeout(() => p.classList.remove("zoomed"), 600);
+    zoomed = null;
+    clearTimeout(zoomTimer);
+  }
+  let lastCommand = null, muted = false, sayTimer = null;
+  function showSay(heard, reply) {
+    $("say-heard").textContent = heard ? `"${heard}"` : "";
+    $("say-reply").textContent = reply || "";
+    $("say").className = "show";
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(() => {
+      $("say").className = "";
+    }, Math.max(6e3, (reply || "").split(" ").length * 420));
+  }
+  function speak(c) {
+    if (muted || !c.reply || !(S && S.board && S.board.tvSpeaks)) return;
+    const fallback = () => {
+      if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+      const u = new SpeechSynthesisUtterance(c.reply);
+      u.lang = "en-GB";
+      window.speechSynthesis.speak(u);
+    };
+    try {
+      const a = new Audio("/api/tts/" + c.id);
+      const p = a.play();
+      if (p && p.catch) p.catch(fallback);
+    } catch (err) {
+      fallback();
+    }
+  }
+  function runCommand(c) {
+    if (c.action === "announce") {
+      showSay("", c.reply);
+      speak(c);
+      if (c.panel) zoom(c.panel, 20);
+      return;
+    }
+    if (c.action === "thinking") {
+      showSay(c.heard, "Thinking");
+      $("say").className = "show thinking";
+      return;
+    }
+    if (c.action === "unmute") muted = false;
+    showSay(c.heard, c.reply);
+    speak(c);
+    switch (c.action) {
+      case "zoom":
+        zoom(c.panel);
+        break;
+      case "focus":
+        zoom(c.panel, 30);
+        break;
+      case "unzoom":
+        unzoom();
+        showWhatsApp(false);
+        break;
+      case "whatsapp":
+        showWhatsApp(true);
+        break;
+      case "reload":
+        setTimeout(() => location.reload(), 3e3);
+        break;
+      case "next":
+        rotator.next();
+        break;
+      case "previous":
+        rotator.previous();
+        break;
+      case "show_site":
+        rotator.show(c.site);
+        zoom("site", 60);
+        break;
+      case "celebrate":
+        queue.push({ level: "win", panel: "ach", big: true, title: "INNOWEB", text: c.reply });
+        break;
+      case "alarm":
+        queue.push({ level: "error", panel: "log", text: "Alarm test" });
+        break;
+      case "mute":
+        muted = true;
+        break;
+    }
+  }
+  function pollCommands() {
+    return __async(this, null, function* () {
+      try {
+        const r = yield getJson("/api/commands" + (lastCommand == null ? "" : "?after=" + lastCommand));
+        if (lastCommand == null) {
+          lastCommand = r.last;
+          return;
+        }
+        for (const c of r.commands) {
+          lastCommand = Math.max(lastCommand, c.id);
+          runCommand(c);
+        }
+      } catch (err) {
+      }
+    });
+  }
+  let serverDown = false, failures = 0, build = null;
+  function getJson(url) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("GET", url + (url.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now());
+      x.timeout = 15e3;
+      x.onload = () => {
+        if (x.status !== 200) return reject(new Error(x.status));
+        try {
+          resolve(JSON.parse(x.responseText));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      x.onerror = x.ontimeout = () => reject(new Error("network"));
+      x.send();
+    });
+  }
+  function poll() {
+    return __async(this, null, function* () {
+      try {
+        S = yield getJson(`/api/state?vw=${window.innerWidth}&vh=${window.innerHeight}&dpr=${window.devicePixelRatio || 1}`);
+        if (S.build && build && S.build !== build) {
+          location.reload();
+          return;
+        }
+        build = S.build;
+        if (serverDown) note("Jarvis server is back");
+        serverDown = false;
+        failures = 0;
+        const evs = S.events || [];
+        if (lastEventId == null) lastEventId = evs.length ? evs[evs.length - 1].id : 0;
+        for (const e of evs) {
+          if (e.id <= lastEventId) continue;
+          lastEventId = e.id;
+          if (!e.history && (e.level === "win" || e.level === "error")) queue.push(e);
+        }
+        render();
+      } catch (e) {
+        failures++;
+        if (failures === 3 && !serverDown) {
+          serverDown = true;
+          queue.push({ level: "error", panel: "log", text: "Jarvis server is not answering" });
+          note("Jarvis server is not answering");
+        }
+      }
+    });
+  }
+  addEventListener("resize", layout);
+  layout();
+  tickClock();
+  setInterval(tickClock, 1e3);
+  poll();
+  setInterval(poll, POLL_MS);
+  setInterval(pollCommands, 1e3);
+  show();
+  setTimeout(() => location.reload(), 6 * 36e5);
+  sound.arm();
+  for (const type of ["keydown", "click", "touchstart", "mousedown"]) addEventListener(type, sound.arm, true);
+  const fsNote = document.createElement("div");
+  fsNote.id = "fs-note";
+  fsNote.textContent = "Press OK on the remote for full screen";
+  document.body.appendChild(fsNote);
+  const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  const goFull = () => {
+    if (isFull() || stacked) return;
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+    if (req) {
+      try {
+        const r = req.call(el);
+        if (r && r.catch) r.catch(() => {
+        });
+      } catch (err) {
+      }
+    }
+  };
+  const fsCheck = () => {
+    fsNote.style.display = isFull() || stacked || window.innerHeight >= screen.height - 4 ? "none" : "block";
+  };
+  for (const type of ["keydown", "click", "touchstart"]) addEventListener(type, goFull, true);
+  document.addEventListener("webkitfullscreenchange", () => {
+    fsCheck();
+    setTimeout(layout, 300);
+  });
+  document.addEventListener("fullscreenchange", () => {
+    fsCheck();
+    setTimeout(layout, 300);
+  });
+  setInterval(fsCheck, 3e3);
+  fsCheck();
+  addEventListener("keydown", (ev) => {
+    if (ev.key === "c") queue.push({ level: "win", panel: "ach", big: true, title: "TEST WIN", text: "Celebration test" });
+    if (ev.key === "a") queue.push({ level: "error", panel: "log", text: "Alarm test" });
+    if (ev.key === "f" && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+  });
+})();

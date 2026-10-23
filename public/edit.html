@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
+<meta name="robots" content="noindex, nofollow">
+<title>Jarvis Board</title>
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #03060a; --card: #0b141c; --line: rgba(94, 231, 255, 0.18); --cyan: #5ee7ff; --lime: #c8ff3e; --red: #ff3347; --text: #eaf4f8; --muted: #93abb9; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Chakra Petch', system-ui, sans-serif; font-size: 16px; padding: 20px 16px 120px; }
+  main { max-width: 640px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  header svg { width: 40px; height: 40px; color: var(--cyan); }
+  h1 { font-size: 24px; letter-spacing: 0.16em; }
+  h1 small { display: block; font-size: 13px; color: var(--lime); letter-spacing: 0.3em; }
+  header a { margin-left: auto; color: var(--cyan); font-size: 15px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+  .row.wide { grid-template-columns: 1fr; }
+  .row + .row, label + .row, .row + label { margin-top: 12px; }
+  label { display: block; font-size: 14px; color: var(--muted); }
+  label + label { margin-top: 12px; }
+  input, select, textarea { display: block; width: 100%; margin-top: 6px; padding: 12px; font: 600 18px 'Chakra Petch', system-ui, sans-serif; color: var(--text); background: #050a0f; border: 1px solid var(--line); border-radius: 6px; }
+  textarea { font: 14px/1.5 Consolas, monospace; min-height: 220px; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--cyan); outline-offset: 1px; }
+  .token { display: grid; grid-template-columns: 1.4fr 1fr 1fr 44px; gap: 8px; align-items: end; margin-bottom: 10px; }
+  .token input { font-size: 15px; padding: 10px; }
+  .token button { height: 42px; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; font-size: 20px; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  .ghost { background: none; border: 1px solid var(--line); color: var(--cyan); padding: 10px 14px; border-radius: 6px; font: 600 15px 'Chakra Petch', sans-serif; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(3, 6, 10, 0.94); border-top: 1px solid var(--line); }
+  .bar div { max-width: 640px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+  .save { flex: 1; padding: 15px; background: var(--lime); color: #071003; border: 0; border-radius: 8px; font: 700 18px 'Chakra Petch', sans-serif; letter-spacing: 0.12em; text-transform: uppercase; }
+  #msg { font-size: 14px; color: var(--muted); }
+  #msg.ok { color: var(--lime); } #msg.bad { color: var(--red); }
+  .tests { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tests .alarm { color: var(--red); border-color: rgba(255, 51, 71, 0.5); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="-30 -30 60 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8"/><polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/><path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/></g></svg>
+    <h1>INNOWEB<small>JARVIS BOARD</small></h1>
+    <a href="/">Open the TV view</a>
+  </header>
+
+  <section id="pw-box" hidden>
+    <h2>Password</h2>
+    <label>Jarvis password<input id="pw" type="password" autocomplete="current-password"></label>
+  </section>
+
+  <section>
+    <h2>Money</h2>
+    <div class="row">
+      <label>Made so far (€)<input id="revenue" type="number" inputmode="decimal" min="0" step="1"></label>
+      <label>Goal (€)<input id="revenueGoal" type="number" inputmode="decimal" min="1" step="1"></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Clients and deals</h2>
+    <div class="row">
+      <label>Clients managed<input id="clientsManaged" type="number" inputmode="numeric" min="0"></label>
+      <label>Pending client deals<input id="clientsPending" type="number" inputmode="numeric" min="0"></label>
+    </div>
+    <div class="row">
+      <label>Website deals<input id="websiteDeals" type="number" inputmode="numeric" min="0"></label>
+      <label>Pending website deals<input id="websiteDealsPending" type="number" inputmode="numeric" min="0"></label>
+    </div>
+    <div class="row">
+      <label>Websites built<input id="websitesBuilt" type="number" inputmode="numeric" min="0"></label>
+      <span></span>
+    </div>
+    <p class="hint">Raising a number makes the spider celebrate on the TV.</p>
+  </section>
+
+  <section>
+    <h2>Meta app review</h2>
+    <label>Status
+      <select id="metaStatus">
+        <option value="pending">Not sent yet</option>
+        <option value="in_review">In review</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+      </select>
+    </label>
+    <div class="row">
+      <label>App<input id="metaApp"></label>
+      <label>Sent on<input id="metaSubmitted" type="date"></label>
+    </div>
+    <label>Note<input id="metaNote"></label>
+  </section>
+
+  <section>
+    <h2>Token usage</h2>
+    <div id="tokens"></div>
+    <button type="button" class="ghost" id="add-token">Add an account</button>
+    <p class="hint">Apify, Serper and OpenAI come in live from the lead finder. Add the other accounts here (for example each Claude account) with what is used and the limit.</p>
+  </section>
+
+  <section>
+    <h2>Lead finder outreach</h2>
+    <div class="row">
+      <label>Websites sent<input id="sitesSent" type="number" inputmode="numeric" min="0"></label>
+      <label>Emails sent<input id="emailsSent" type="number" inputmode="numeric" min="0"></label>
+    </div>
+    <p class="hint">Added to what the lead finder records itself.</p>
+  </section>
+
+  <section>
+    <h2>Countdown</h2>
+    <div class="row wide">
+      <label>Counting down to<input id="cdTarget" type="datetime-local"></label>
+      <label>Label<input id="cdLabel"></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sites on rotation</h2>
+    <label>One per line: Name | address<textarea id="sites" spellcheck="false"></textarea></label>
+    <label>Seconds per site<input id="rotateSeconds" type="number" inputmode="numeric" min="2" max="300"></label>
+  </section>
+
+  <section>
+    <h2>Test the TV</h2>
+    <div class="tests">
+      <button type="button" class="ghost" data-test="win">Test a celebration</button>
+      <button type="button" class="ghost alarm" data-test="error">Test the alarm</button>
+    </div>
+  </section>
+</main>
+
+<div class="bar"><div><button type="button" class="save" id="save">Save</button><span id="msg"></span></div></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let board = null;
+  const key = () => $('pw').value || '';
+  try { $('pw').value = localStorage.getItem('jarvis-key') || ''; } catch {}
+
+  function msg(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
+
+  function tokenRow(t = {}) {
+    const div = document.createElement('div');
+    div.className = 'token';
+    div.innerHTML = `
+      <label>Account<input data-k="account"></label>
+      <label>Used<input data-k="used" type="number" inputmode="decimal" min="0" step="any"></label>
+      <label>Limit<input data-k="limit" type="number" inputmode="decimal" min="0" step="any"></label>
+      <button type="button" aria-label="Remove this account">×</button>`;
+    div.querySelector('[data-k=account]').value = t.account || '';
+    div.querySelector('[data-k=used]').value = t.used ?? '';
+    div.querySelector('[data-k=limit]').value = t.limit ?? '';
+    div.dataset.unit = t.unit || 'tokens';
+    div.querySelector('button').onclick = () => div.remove();
+    $('tokens').appendChild(div);
+  }
+
+  async function load() {
+    const res = await fetch('/api/board', { cache: 'no-store' });
+    const j = await res.json();
+    board = j.board;
+    $('pw-box').hidden = !j.needsPassword;
+    if (!j.needsPassword && !j.canEdit) msg('Editing works from the Jarvis computer only, until a password is set in .env.', 'bad');
+    const a = board.achievements;
+    for (const k of ['revenue', 'revenueGoal', 'clientsManaged', 'clientsPending', 'websiteDeals', 'websiteDealsPending', 'websitesBuilt']) $(k).value = a[k] ?? 0;
+    const m = board.metaReview || {};
+    $('metaStatus').value = m.status || 'pending';
+    $('metaApp').value = m.app || '';
+    $('metaSubmitted').value = m.submitted || '';
+    $('metaNote').value = m.note || '';
+    $('tokens').innerHTML = '';
+    (board.tokens || []).forEach(tokenRow);
+    const lf = board.leadFinderManual || {};
+    $('sitesSent').value = lf.sitesSent || 0;
+    $('emailsSent').value = lf.emailsSent || 0;
+    $('cdTarget').value = (board.countdown?.target || '').slice(0, 16);
+    $('cdLabel').value = board.countdown?.label || '';
+    $('sites').value = (board.sites || []).map((s) => `${s.name} | ${s.url}`).join('\n');
+    $('rotateSeconds').value = board.rotateSeconds || 3;
+  }
+
+  const n = (id) => Number($(id).value || 0);
+  function collect() {
+    const sites = $('sites').value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const [name, url] = l.includes('|') ? l.split('|').map((x) => x.trim()) : [l.replace(/^https?:\/\//, ''), l];
+      return { name, url: /^https?:\/\//.test(url) ? url : 'https://' + url };
+    });
+    const tokens = [...document.querySelectorAll('#tokens .token')].map((d) => {
+      const v = (k) => d.querySelector(`[data-k=${k}]`).value;
+      return { account: v('account').trim(), used: v('used') === '' ? null : Number(v('used')), limit: v('limit') === '' ? null : Number(v('limit')), unit: d.dataset.unit, note: '' };
+    }).filter((t) => t.account);
+    return {
+      ...board,
+      achievements: {
+        revenue: n('revenue'), revenueGoal: n('revenueGoal') || 10000,
+        clientsManaged: n('clientsManaged'), clientsPending: n('clientsPending'),
+        websiteDeals: n('websiteDeals'), websiteDealsPending: n('websiteDealsPending'),
+        websitesBuilt: n('websitesBuilt'),
+      },
+      metaReview: { app: $('metaApp').value.trim(), status: $('metaStatus').value, submitted: $('metaSubmitted').value, note: $('metaNote').value.trim() },
+      tokens,
+      leadFinderManual: { sitesSent: n('sitesSent'), emailsSent: n('emailsSent') },
+      countdown: { target: $('cdTarget').value.length === 16 ? $('cdTarget').value + ':00' : $('cdTarget').value, label: $('cdLabel').value.trim() },
+      rotateSeconds: Math.max(2, n('rotateSeconds') || 3),
+      sites,
+    };
+  }
+
+  async function post(url, data) {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-jarvis-key': key() }, body: JSON.stringify(data) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || res.status);
+    try { if (key()) localStorage.setItem('jarvis-key', key()); } catch {}
+  }
+
+  $('add-token').onclick = () => tokenRow({});
+  $('save').onclick = async () => {
+    msg('Saving…');
+    try { await post('/api/board', collect()); await load(); msg('Saved. The TV updates within 5 seconds.', 'ok'); }
+    catch (e) { msg('Not saved: ' + e.message, 'bad'); }
+  };
+  document.querySelectorAll('[data-test]').forEach((b) => b.onclick = async () => {
+    try { await post('/api/test', { kind: b.dataset.test }); msg('Sent to the TV.', 'ok'); }
+    catch (e) { msg('Not sent: ' + e.message, 'bad'); }
+  });
+  load().catch((e) => msg('Could not load the board: ' + e.message, 'bad'));
+})();
+</script>
+</body>
+</html>

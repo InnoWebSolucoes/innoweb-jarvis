@@ -1,0 +1,118 @@
+{
+  "achievements": {
+    "revenue": 20,
+    "revenueGoal": 10000,
+    "clientsManaged": 12,
+    "clientsPending": 1,
+    "websiteDeals": 5,
+    "websiteDealsPending": 5,
+    "websitesBuilt": 200
+  },
+  "countdown": {
+    "target": "2026-11-28T00:00:00",
+    "label": "28 November"
+  },
+  "metaReview": {
+    "app": "Innoweb Social",
+    "status": "in_review",
+    "submitted": "2026-10-12",
+    "note": "16 permissions, Instagram and Facebook login"
+  },
+  "tokens": [],
+  "claudeAccounts": {
+    "main": "Innoweb",
+    "others": [
+      "Kasim",
+      "FlowDesk"
+    ]
+  },
+  "leadFinderManual": {
+    "sitesSent": 0,
+    "emailsSent": 0
+  },
+  "innolinkClients": [
+    "Innoweb",
+    "Oluango Rentals",
+    "Okulya",
+    "Dinamene Boornois",
+    "DermeVet",
+    "Sra. Tasca",
+    "Espaço Luanda",
+    "Espaço Luanda Lounge",
+    "Arena Bessangana",
+    "Dibamba",
+    "Vali Alimentar"
+  ],
+  "rotateSeconds": 3,
+  "sites": [
+    {
+      "name": "Innoweb",
+      "url": "https://innoweb.agency"
+    },
+    {
+      "name": "Fada Madrinha",
+      "url": "https://innoweb.agency/fada-madrinha"
+    },
+    {
+      "name": "Okulya Café",
+      "url": "https://okulya.cafe"
+    },
+    {
+      "name": "Oluango Rentals",
+      "url": "https://oluango.com"
+    },
+    {
+      "name": "101 Bar & Lounge",
+      "url": "https://innoweb.agency/101bar"
+    },
+    {
+      "name": "Pressure Jewellery",
+      "url": "https://innoweb.agency/pressurejewellery"
+    },
+    {
+      "name": "Telma Zarro Beauty",
+      "url": "https://innoweb.agency/telma-zarro"
+    },
+    {
+      "name": "DC Barbershop",
+      "url": "https://innoweb.agency/dcbarber"
+    },
+    {
+      "name": "CFMOTO Angola",
+      "url": "https://innoweb.agency/cfmoto"
+    },
+    {
+      "name": "MotoBox",
+      "url": "https://innoweb.agency/motobox"
+    },
+    {
+      "name": "Look Al Beach Club",
+      "url": "https://innoweb.agency/lookalbeachclub"
+    },
+    {
+      "name": "Groundstate Coffee",
+      "url": "https://innoweb.agency/groundstate-coffee"
+    },
+    {
+      "name": "One Kinda Folk",
+      "url": "https://innoweb.agency/one-kinda-folk"
+    },
+    {
+      "name": "Cool Hand Kilmainham",
+      "url": "https://innoweb.agency/cool-hand-coffee-roasters-kilmainham"
+    },
+    {
+      "name": "BaaBaa Cafe",
+      "url": "https://innoweb.agency/baabaa-cafe"
+    },
+    {
+      "name": "Innoweb Bookings",
+      "url": "https://innoweb.agency/bookings"
+    },
+    {
+      "name": "Okulya on Innolink",
+      "url": "https://okulya.innolink.info"
+    }
+  ],
+  "tvSpeaks": true
+}
