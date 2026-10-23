@@ -140,6 +140,10 @@
 
 <div class="bar"><div><button type="button" class="save" id="save">Save</button><span id="msg"></span></div></div>
 
+<script id="jarvis-login-check">
+  // On the live site, ask for the password first.
+  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+</script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);

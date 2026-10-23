@@ -589,6 +589,38 @@ function startWhatsApp() {
   py.on('close', () => { state.whatsapp.state = 'off'; state.whatsapp.ready = false; setTimeout(startWhatsApp, 30000); });
 }
 
+// --- the live site. Vercel serves the pages and checks the password; the data,
+// voice and films come from this PC through a Cloudflare tunnel. The tunnel's
+// address changes when it restarts, so it is published (with nothing secret in
+// it) where the Vercel site reads it. Requests through the tunnel must carry
+// RELAY_SECRET, which only the Vercel site has.
+const RELAY_SECRET = env.RELAY_SECRET || '';
+const TUNNEL_BIN = path.join(ROOT, 'bin', 'cloudflared.exe');
+state.tunnel = null;
+async function publishTunnel(url) {
+  if (!INNOLINK.service) return;
+  const h = { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}` };
+  await fetch(`${INNOLINK.url}/storage/v1/bucket`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'jarvis-public', name: 'jarvis-public', public: true }) }).catch(() => {});
+  const res = await fetch(`${INNOLINK.url}/storage/v1/object/jarvis-public/tunnel.json`, {
+    method: 'POST', headers: { ...h, 'Content-Type': 'application/json', 'x-upsert': 'true', 'cache-control': 'max-age=5' },
+    body: JSON.stringify({ url, at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`publish tunnel ${res.status}`);
+}
+function startTunnel() {
+  if (!RELAY_SECRET || !fs.existsSync(TUNNEL_BIN)) return;
+  const cf = spawn(TUNNEL_BIN, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { windowsHide: true });
+  const seen = (d) => {
+    const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (m && m[0] !== state.tunnel) {
+      state.tunnel = m[0];
+      publishTunnel(m[0]).then(() => log('info', 'jarvis', 'Live site connected', { quiet: true })).catch(err => console.error('tunnel:', err.message));
+    }
+  };
+  cf.stdout.on('data', seen); cf.stderr.on('data', seen);
+  cf.on('close', () => { state.tunnel = null; setTimeout(startTunnel, 15000); });
+}
+
 function shootSites(onlyMissing) {
   if (shooting) return;
   const sites = (state.board?.sites || []).filter(s => !onlyMissing || !state.shots[s.url]);
@@ -713,6 +745,19 @@ function briefing() {
   return `All systems ${errs || down || Object.keys(failing).length ? 'mostly' : ''} running. ${eur(a.revenue)} of ${eur(a.revenueGoal)} so far, ${a.clientsManaged} clients. ${down ? `${down} sites down.` : 'Every site is up.'} ${errs ? `${errs} alert${errs > 1 ? 's' : ''} in the last day.` : 'No alerts in the last day.'}`.replace(/\s+/g, ' ').trim();
 }
 
+// The whole picture, for "give me a summary": read out while the TV shows each panel in turn.
+function overview() {
+  const a = state.board?.achievements || {}, l = state.leads, f = state.flowdesk;
+  const parts = [`We're at ${eur(a.revenue)} of ${eur(a.revenueGoal)}.`];
+  if (l.ok) parts.push(`Today the lead finder sent ${l.sitesSentToday} websites and ${l.whatsappToday} WhatsApps, and found ${l.leadsToday} new leads.`);
+  if (l.ok && l.pipeline) parts.push(l.pipeline.replied ? `${l.pipeline.replied} of the ${l.pipeline.sent} businesses we contacted have replied.` : `None of the ${l.pipeline.sent} businesses we contacted have replied yet.`);
+  if (f.ok) parts.push(f.people.map(p => p.status === 'working' ? `${p.name.split(' ')[0]} is on ${p.working[0]}` : p.status === 'todo' ? `${p.name.split(' ')[0]} hasn't started ${p.dueToday[0]}` : `${p.name.split(' ')[0]} is done for today`).join(', ') + '.');
+  if (f.ok && f.todo) parts.push(`${f.todo.open.length} things on the to-do list.`);
+  const down = Object.keys(failing);
+  parts.push(down.length ? `Heads up: ${down.join(' and ')} ${down.length > 1 ? 'are' : 'is'} offline.` : 'Everything is online.');
+  return parts.join(' ');
+}
+
 function rules(raw) {
   const t = raw.toLowerCase().replace(/\b(hey |ok |okay )?(jarvis|jervis|javis|travis|charvis)\b/g, ' ').replace(/[^a-z0-9à-ú€ ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return { action: 'none', reply: 'Yes?' };
@@ -739,15 +784,17 @@ function rules(raw) {
   // straight off the dashboard. Questions that need thinking go to Claude.
   const factual = /^(how (much|many|long|far|close)|what s (the|our)|whats (the|our)|what (is|are) (the|our)|is (the|our)|are (the|our|we)|did|when|which|who|tell me (about|the|how)|give me the)\b/.test(t);
   const question = /^(how|what|whats|why|when|who|which|should|could|can|would|will|is|are|do|does|did|have|has|tell|give|explain|help)\b/.test(t);
-  if (/\b(status|report|briefing|summary|how are we doing|how is everything|how s everything|update me)\b/.test(t) && !panel) return { action: 'unzoom', reply: briefing() };
-  if (factual && panel) return { action: 'focus', panel, reply: answer(panel) };
+  if (/\b(summary|summarise|summarize|overview|briefing|status report|catch me up|update me|how are we doing|how is everything|how s everything|run me through)\b/.test(t)) return { action: 'tour', reply: overview() };
+  if (factual && panel) return { action: 'none', reply: answer(panel) };
   if (question) return null;
   if (site) return { action: 'show_site', panel: 'site', site: site.url, reply: `Here is ${site.name}.` };
-  if (panel) return { action: 'zoom', panel, reply: `${PANEL_NAMES[panel]}. ${answer(panel)}` };
+  const show = /\b(pull up|show|open|zoom|display|bring up|put up|go to|full screen|let me see)\b/.test(t);
+  if (panel && show) return { action: 'zoom', panel, reply: `${PANEL_NAMES[panel]}. ${answer(panel)}` };
+  if (panel) return { action: 'none', reply: answer(panel) };
   return null;
 }
 
-const ACTIONS = ['none', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const AI_SCHEMA = {
@@ -766,12 +813,17 @@ const AI_SCHEMA = {
 };
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
 
-Reply like a sharp, warm assistant: one to three short spoken sentences, no lists, no markdown, no emoji. Answer in the language you were spoken to. Use the dashboard data you are given for anything about the business; if the data doesn't say, say so plainly rather than guessing.
+Your personality: a confident, charming woman with a quick, playful wit. You tease the team affectionately, celebrate their wins with real enthusiasm, give a cheeky nudge when things are slow ("forty businesses and not one reply? Somebody's playing hard to get"), and keep a warm, slightly mischievous tone. Charming and fun, but always work-appropriate: no sexual or crude remarks, ever, because the whole team hears you.
+
+Reply in one to three short spoken sentences: no lists, no markdown, no emoji. Answer in the language you were spoken to. Use the dashboard data for anything about the business; if the data doesn't say, say so plainly rather than guessing.
+
+Only take over the screen when asked to show something ("pull up the team", "show me Innolink"): then zoom. A question ("how much money have we made?") is answered out loud with action none, so the screen stays as it is. "Give me a summary" or "an overview" is tour.
 
 You can also act on the TV by choosing an action:
 - zoom: enlarge one panel (set panel). focus: same, used when answering about a panel.
 - unzoom: back to all panels. reload: reload the TV page. refresh: re-read every data source now. reshoot: take fresh pictures of the sites.
 - next / previous: change the site in "Our work". show_site: show one site (set site to its url).
+- tour: show each panel full screen in turn while you give the overview.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
 - none: just answer.
@@ -951,6 +1003,7 @@ setTimeout(() => shootSites(true), 2000);
 setInterval(() => shootSites(false), 6 * 3600_000);
 setTimeout(filmDemos, 20000);
 setTimeout(startWhatsApp, 3000);
+setTimeout(startTunnel, 2000);
 setInterval(filmDemos, 6 * 3600_000);
 log('info', 'jarvis', 'Jarvis online', { quiet: true });
 
@@ -965,6 +1018,7 @@ function send(res, code, body, type = 'application/json') {
 
 // Editing needs the password from .env. With none set, only this PC can edit.
 function allowedToEdit(req) {
+  if (req.headers['cf-connecting-ip']) return !!RELAY_SECRET && req.headers['x-jarvis-relay'] === RELAY_SECRET;
   if (PASSWORD) return req.headers['x-jarvis-key'] === PASSWORD;
   const ip = req.socket.remoteAddress || '';
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -1014,6 +1068,8 @@ const screens = {};
 const clientLog = [];
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // Through the tunnel (Cloudflare adds cf-connecting-ip): only the Vercel site, with the secret.
+  if (req.headers['cf-connecting-ip'] && (!RELAY_SECRET || req.headers['x-jarvis-relay'] !== RELAY_SECRET)) return send(res, 403, { error: 'Open Jarvis through its live site' });
   try {
     if (url.pathname === '/api/state') {
       if (url.searchParams.get('vw')) screens[req.socket.remoteAddress] = { vw: url.searchParams.get('vw'), vh: url.searchParams.get('vh'), dpr: url.searchParams.get('dpr'), ua: String(req.headers['user-agent'] || '').slice(0, 160), at: new Date().toISOString() };
@@ -1036,7 +1092,7 @@ const server = http.createServer(async (req, res) => {
       const file = path.join(FILMS, stream[1] + '.webm');
       if (!fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
       res.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace;boundary=ffmpeg', 'Cache-Control': 'no-store', Connection: 'close' });
-      const ff = spawn('ffmpeg', ['-loglevel', 'error', '-re', '-i', file, '-vf', 'scale=960:-2', '-r', '15', '-q:v', '5', '-f', 'mpjpeg', 'pipe:1'], { windowsHide: true });
+      const ff = spawn('ffmpeg', ['-loglevel', 'error', '-re', '-i', file, '-vf', 'scale=800:-2', '-r', '12', '-q:v', '6', '-f', 'mpjpeg', 'pipe:1'], { windowsHide: true });
       ff.stdout.pipe(res);
       ff.on('close', () => res.end());
       req.on('close', () => ff.kill());

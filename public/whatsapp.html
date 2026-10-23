@@ -23,6 +23,10 @@
   <img id="qr" alt="" hidden>
   <div id="state">Starting WhatsApp…</div>
 </main>
+<script id="jarvis-login-check">
+  // On the live site, ask for the password first.
+  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+</script>
 <script>
   // The code changes every few seconds until it is scanned; this keeps it current.
   async function poll() {

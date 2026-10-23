@@ -1,0 +1,16 @@
+{
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "functions": { "api/relay.js": { "maxDuration": 60 } },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/relay?p=/api/:path*" },
+    { "source": "/demos/:path*", "destination": "/api/relay?p=/demos/:path*" },
+    { "source": "/shots/:path*", "destination": "/api/relay?p=/shots/:path*" },
+    { "source": "/film-stream/:path*", "destination": "/api/relay?p=/film-stream/:path*" },
+    { "source": "/voice", "destination": "/voice.html" },
+    { "source": "/edit", "destination": "/edit.html" },
+    { "source": "/whatsapp", "destination": "/whatsapp.html" }
+  ],
+  "headers": [{ "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex, nofollow" }] }]
+}

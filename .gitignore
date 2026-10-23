@@ -10,3 +10,4 @@ data/tts/
 data/brain/
 data/cert/
 __pycache__/
+bin/

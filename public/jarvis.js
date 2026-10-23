@@ -285,9 +285,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       won: { n: won, label: "Won", color: "#34d399" }
     };
     const links = [["sent", "replied"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
-    const cols = [["sent"], ["replied", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]];
+    const cols = [["sent"], ["replied", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
-    const step = (W2 - NODE - LABEL) / (cols.length - 1);
+    const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 20) / (cols.length - 1), 190) : 0;
     cols.forEach((ids, c) => {
       let y = 0;
       ids.forEach((id) => {
@@ -311,6 +311,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     }
     let text = "";
     for (const id in nodes) {
+      if (nodes[id].x == null) continue;
       const nd = nodes[id], parent = links.filter((l) => l[1] === id)[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
       const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round(nd.n / nodes[parent[0]].n * 100)}%</i>` : "";
@@ -487,6 +488,22 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       }
     };
   })();
+  let touring = null;
+  function tour() {
+    clearTimeout(touring);
+    const keys = ["ach", "lead", "pipe", "team", "todo", "link", "meta", "log"].filter((k) => panels[k]);
+    let i = 0;
+    const next = () => {
+      if (i >= keys.length) {
+        unzoom();
+        touring = null;
+        return;
+      }
+      zoom(keys[i++], 8);
+      touring = setTimeout(next, 6e3);
+    };
+    next();
+  }
   function showWhatsApp(on) {
     const el = $("wa-view");
     el.className = on ? "wa-view show" : "wa-view";
@@ -684,87 +701,139 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   })();
   const spider = (() => {
     const el = $("spider");
-    const LEGS = [
-      // attach, knee, foot (left side, facing up); the right side mirrors these
-      [[-14, -16], [-34, -36], [-40, -60]],
-      [[-21, -6], [-47, -18], [-60, -32]],
-      [[-21, 6], [-47, 14], [-60, 30]],
-      [[-14, 16], [-32, 34], [-40, 58]]
-    ];
-    const legSvg = [];
-    let svg = '<svg viewBox="-70 -70 140 140">';
-    svg += '<defs><linearGradient id="beamGrad" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#60a5fa" stop-opacity="0.5"/><stop offset="1" stop-color="#60a5fa" stop-opacity="0"/></linearGradient></defs>';
-    svg += '<polygon class="beam" points="-5,-6 5,-6 70,-230 -70,-230" fill="url(#beamGrad)"/>';
-    LEGS.forEach((leg, i) => {
-      for (const side of [-1, 1]) {
-        const [a, k, f] = leg.map(([x, y]) => [x * -side, y]);
-        const d = `M0,0 L${k[0] - a[0]},${k[1] - a[1]} L${f[0] - a[0]},${f[1] - a[1]}`;
-        svg += `<g transform="translate(${a[0]},${a[1]})"><g data-leg="${legSvg.length}"><path d="${d}" fill="none" stroke="#f1ece2" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${f[0] - a[0]}" cy="${f[1] - a[1]}" r="2.6" fill="#f1ece2"/></g></g>`;
-        legSvg.push({ i, side });
+    const ARMS = 8;
+    const armEls = (cls) => {
+      let h = "";
+      for (let i = 0; i < ARMS; i++) {
+        if (i % 2 === 1 !== (cls === "back")) continue;
+        h += `<path class="arm-under" data-i="${i}" fill="${cls === "back" ? "#efd795" : "#fff0bf"}"/><path class="arm-top" data-i="${i}" fill="url(#${cls === "back" ? "octoArmBack" : "octoArm"})"/>`;
       }
-    });
-    svg += '<g stroke="#f1ece2" stroke-width="3" stroke-linecap="round">' + [[-10, 34], [-5, 39], [0, 42], [5, 39], [10, 34]].map(([x, y]) => `<line x1="${x}" y1="22" x2="${x}" y2="${y}"/>`).join("") + "</g>";
-    svg += '<polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8" fill="#05090d" stroke="#f1ece2" stroke-width="3" stroke-linejoin="round"/>';
-    svg += '<g fill="none" stroke="#f1ece2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/><path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/></g>';
-    svg += '<circle class="eye" cx="-3.6" cy="-3" r="2.6"/><circle class="eye" cx="3.6" cy="-3" r="2.6"/>';
+      return h;
+    };
+    let svg = '<svg viewBox="-90 -92 180 184">';
+    svg += '<defs><radialGradient id="octoBody" cx="0.38" cy="0.3" r="0.85"><stop offset="0" stop-color="#ffe27a"/><stop offset="0.45" stop-color="#fcc419"/><stop offset="1" stop-color="#e9a000"/></radialGradient><linearGradient id="octoArm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcc419"/><stop offset="1" stop-color="#f2b000"/></linearGradient><linearGradient id="octoArmBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e5a400"/><stop offset="1" stop-color="#d49400"/></linearGradient></defs>';
+    svg += '<g class="arms-back">' + armEls("back") + "</g>";
+    svg += '<path class="octo-body" fill="url(#octoBody)" d="M-25,12 C-29,-6 -36,-28 -35,-50 C-33,-75 -17,-86 0,-86 C17,-86 33,-75 35,-50 C36,-28 29,-6 25,12 Z"/><path d="M-33,-36 Q0,-25 33,-36" fill="none" stroke="#b97f00" stroke-opacity="0.35" stroke-width="1.4"/><ellipse cx="-13" cy="-63" rx="9" ry="14" fill="#fff" fill-opacity="0.12" transform="rotate(-16 -13 -63)"/>';
+    svg += '<g class="arms-front">' + armEls("front") + "</g>";
+    svg += '<g class="eyes"><circle cx="-16" cy="-14" r="6.2" fill="#fff" stroke="#d6d3d1" stroke-width="0.9"/><circle cx="16" cy="-14" r="6.2" fill="#fff" stroke="#d6d3d1" stroke-width="0.9"/><circle class="pupil" cx="-16" cy="-14" r="3.7" fill="#111"/><circle class="pupil" cx="16" cy="-14" r="3.7" fill="#111"/><circle class="glint" cx="-17.2" cy="-15.4" r="1.1" fill="#fff"/><circle class="glint" cx="14.8" cy="-15.4" r="1.1" fill="#fff"/></g>';
     svg += "</svg>";
     el.innerHTML = svg;
-    const legEls = [...el.querySelectorAll("[data-leg]")];
-    const s = { x: 960, y: -80, angle: 180, want: 180, hop: 0, spin: 0, shake: 0, phase: 0, moving: false, target: null };
-    let last = performance.now();
+    const unders = [], tops = [];
+    [].forEach.call(el.querySelectorAll(".arm-under"), (p) => {
+      unders[+p.getAttribute("data-i")] = p;
+    });
+    [].forEach.call(el.querySelectorAll(".arm-top"), (p) => {
+      tops[+p.getAttribute("data-i")] = p;
+    });
+    const pupils = el.querySelectorAll(".pupil"), glints = el.querySelectorAll(".glint");
+    const s = { x: 960, y: -90, vx: 0, vy: 0, hop: 0, spin: 0, shake: 0, phase: 0, moving: false, target: null, happy: 0 };
+    let last = performance.now(), lastDraw = 0;
+    const N = 9, f = (v) => v.toFixed(1);
+    function armShapes(i, trailX, trailY) {
+      const off = (i - 3.5) / 3.5, side = off < 0 ? -1 : 1, back = i % 2 === 1;
+      const L = back ? 58 : 68, W2 = back ? 8.6 : 10.2, seg = L / N;
+      const deg = Math.PI / 180;
+      const pts = [];
+      let x = off * 21, y = 2;
+      for (let j = 0; j <= N; j++) {
+        const a = j / N;
+        const theta = (90 - off * 30 - side * 125 * a * a * a + Math.sin(s.phase * 1.6 + i * 0.9 + a * 3) * 13 * a) * deg;
+        pts.push([x + trailX * L * a * a, y + trailY * L * a * a]);
+        x += Math.cos(theta) * seg;
+        y += Math.sin(theta) * seg;
+      }
+      const c = -side;
+      const edge = (k) => pts.map((p, j) => {
+        const q = pts[Math.min(N, j + 1)], r = pts[Math.max(0, j - 1)];
+        let tx = q[0] - r[0], ty = q[1] - r[1];
+        const len = Math.sqrt(tx * tx + ty * ty) || 1;
+        tx /= len;
+        ty /= len;
+        const w = W2 * (1 - 0.62 * (j / N)) * k;
+        return [p[0] - ty * w * c, p[1] + tx * w * c, tx, ty];
+      });
+      const shape = (kOut, kIn) => {
+        const A = edge(-kOut), B = edge(kIn), tip = pts[N], tA = A[N];
+        const w = W2 * 0.38;
+        let d = `M${f(A[0][0])},${f(A[0][1])}`;
+        for (let j = 1; j <= N; j++) d += `L${f(A[j][0])},${f(A[j][1])}`;
+        d += `Q${f(tip[0] + tA[2] * w * 1.7)},${f(tip[1] + tA[3] * w * 1.7)} ${f(B[N][0])},${f(B[N][1])}`;
+        for (let j = N - 1; j >= 0; j--) d += `L${f(B[j][0])},${f(B[j][1])}`;
+        return d + "Z";
+      };
+      return [shape(1, 1.1), shape(1.02, 0.5)];
+    }
     function frame(t) {
-      var _a2, _b, _c;
+      requestAnimationFrame(frame);
       const dt = Math.min(0.05, (t - last) / 1e3);
       last = t;
+      let vx = 0, vy = 0;
       if (s.target) {
-        const dx = s.target.x - s.x, dy = s.target.y - s.y, dist = Math.hypot(dx, dy);
-        if (dist < 3 || ((_b = (_a2 = s.target).abort) == null ? void 0 : _b.call(_a2))) {
+        const dx = s.target.x - s.x, dy = s.target.y - s.y, dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 3 || s.target.abort && s.target.abort()) {
           const done = s.target.done;
           s.target = null;
           s.moving = false;
           done();
         } else {
-          const step = Math.min(dist, s.target.speed * dt);
+          const surge = 0.65 + 0.55 * Math.max(0, Math.sin(s.phase * 1.1));
+          const step = Math.min(dist, s.target.speed * surge * dt);
+          vx = dx / dist * step / dt;
+          vy = dy / dist * step / dt;
           s.x += dx / dist * step;
           s.y += dy / dist * step;
-          s.want = Math.atan2(dx, -dy) * 180 / Math.PI;
           s.moving = true;
         }
       }
-      let diff = (s.want - s.angle + 540) % 360 - 180;
-      s.angle += diff * Math.min(1, dt * 8);
-      s.phase += dt * (s.moving ? (((_c = s.target) == null ? void 0 : _c.speed) || 300) / 22 : 0);
-      legEls.forEach((g, n) => {
-        const { i, side } = legSvg[n];
-        const gait = (i + (side > 0 ? 1 : 0)) % 2 ? 0 : Math.PI;
-        const a = s.moving ? Math.sin(s.phase + gait) * 16 : Math.sin(t / 900 + n) * 2;
-        g.setAttribute("transform", `rotate(${a * side})`);
-      });
+      s.vx += (vx - s.vx) * Math.min(1, dt * 4);
+      s.vy += (vy - s.vy) * Math.min(1, dt * 4);
+      s.phase += dt * (s.moving ? 5.5 : 2.2) * (s.happy > 0 ? 2.2 : 1);
+      if (s.happy > 0) s.happy -= dt;
+      if (t - lastDraw < 32) return;
+      lastDraw = t;
+      const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy) || 1;
+      const trailX = s.moving ? -s.vx / sp * 0.45 : 0, trailY = s.moving ? -s.vy / sp * 0.35 : 0;
+      for (let i = 0; i < ARMS; i++) {
+        const d = armShapes(i, trailX, trailY);
+        unders[i].setAttribute("d", d[0]);
+        tops[i].setAttribute("d", d[1]);
+      }
+      const lx = s.moving ? s.vx / sp * 2.6 : Math.sin(t / 1400) * 1.5, ly = s.moving ? s.vy / sp * 2 : 0;
+      pupils[0].setAttribute("cx", -16 + lx);
+      pupils[0].setAttribute("cy", -14 + ly);
+      pupils[1].setAttribute("cx", 16 + lx);
+      pupils[1].setAttribute("cy", -14 + ly);
+      glints[0].setAttribute("cx", -17.2 + lx);
+      glints[1].setAttribute("cx", 14.8 + lx);
+      const pulse = Math.sin(s.phase * 1.1);
+      const sx = 1 + (s.moving ? 0.1 : 0.04) * pulse, sy = 1 - (s.moving ? 0.09 : 0.035) * pulse;
+      const tilt = Math.max(-16, Math.min(16, s.vx * 0.05));
       const jx = s.shake ? rand(-s.shake, s.shake) : 0, jy = s.shake ? rand(-s.shake, s.shake) : 0;
-      el.style.transform = `translate(${s.x + jx}px, ${s.y - s.hop + jy}px) rotate(${s.angle + s.spin}deg) scale(${1 + s.hop / 160})`;
-      requestAnimationFrame(frame);
+      const tr = `translate(${(s.x + jx).toFixed(1)}px, ${(s.y - s.hop + jy).toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
+      el.style.webkitTransform = tr;
+      el.style.transform = tr;
     }
     requestAnimationFrame(frame);
     return {
       state: s,
       el,
-      walkTo(x, y, speed = 260, abort) {
+      walkTo(x, y, speed = 220, abort) {
         return new Promise((done) => {
           s.target = { x, y, speed, abort, done };
         });
       },
-      face(deg) {
-        s.want = deg;
+      face() {
       },
       hop(times = 3, spin = true) {
         return __async(this, null, function* () {
+          s.happy = times * 0.6 + 0.5;
           for (let n = 0; n < times; n++) {
-            const t0 = performance.now(), dur = 520;
+            const t0 = performance.now(), dur = 560;
             yield new Promise((r) => {
               const step = (t) => {
                 const k = Math.min(1, (t - t0) / dur);
-                s.hop = Math.sin(k * Math.PI) * 70;
-                if (spin) s.spin = k * 360;
+                s.hop = Math.sin(k * Math.PI) * 60;
+                if (spin) s.spin = Math.sin(k * Math.PI * 2) * 14;
                 if (k < 1) requestAnimationFrame(step);
                 else {
                   s.hop = 0;
@@ -802,28 +871,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       yield sleep(500);
       const panel = panels[key];
       panel.classList.add("scanning");
-      spider.el.classList.add("scanning");
-      const scan = document.createElement("div");
-      scan.className = "scan";
-      scan.innerHTML = '<div class="scan-line"></div><div class="scan-tag"></div>';
-      panel.appendChild(scan);
-      const tag = scan.lastChild;
-      const total = rand(4500, 6500), t0 = performance.now();
-      while (performance.now() - t0 < total && !interrupted()) {
-        const k = Math.min(1, (performance.now() - t0) / total);
-        tag.textContent = `Looking at ${PANEL_NAMES[key].toLowerCase()} ${Math.round(k * 100)}%`;
-        yield sleep(80);
-      }
-      if (!interrupted()) {
-        const msg = insight(key);
-        tag.textContent = msg || "All good";
-        scans++;
-        if (msg && scans % 4 === 0) note(msg);
-        yield sleep(1800);
-      }
-      scan.remove();
+      const t0 = performance.now(), total = rand(3500, 5500);
+      while (performance.now() - t0 < total && !interrupted()) yield sleep(200);
       panel.classList.remove("scanning");
-      spider.el.classList.remove("scanning");
       if (!interrupted() && ["ach", "lead", "link", "team"].includes(key) && Math.random() < 0.18) {
         const r = spider.state;
         fx.confetti(r.x, r.y, 40, 0.6);
@@ -832,7 +882,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       return key;
     });
   }
-  let scans = 0;
   function insight(key) {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!S) return "";
@@ -1027,6 +1076,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       case "whatsapp":
         showWhatsApp(true);
         break;
+      case "tour":
+        tour();
+        break;
       case "reload":
         setTimeout(() => location.reload(), 3e3);
         break;
@@ -1074,6 +1126,10 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       x.open("GET", url + (url.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now());
       x.timeout = 15e3;
       x.onload = () => {
+        if (x.status === 401) {
+          location.href = "/login.html?next=" + encodeURIComponent(location.pathname + location.search);
+          return;
+        }
         if (x.status !== 200) return reject(new Error(x.status));
         try {
           resolve(JSON.parse(x.responseText));

@@ -82,6 +82,10 @@
   <p class="hints">Try <b>pull up Innolink</b>, <b>show Okulya</b>, <b>next site</b>, <b>how much money have we made</b>, <b>go back</b>, <b>reload</b>, <b>refresh the data</b>, <b>give me a status report</b>, <b>celebrate</b>.</p>
 </main>
 
+<script id="jarvis-login-check">
+  // On the live site, ask for the password first.
+  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+</script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
