@@ -1007,7 +1007,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const release = () => { clearTimeout(sayTimer); sayTimer = setTimeout(() => { $('say').className = ''; }, 2500); };
     const guard = setTimeout(start, 15000);   // no sound after 15 seconds: carry on without it
     const fail = () => { start(); fallback(); };
-    try { play('/api/tts/' + c.id, fail, start, release); } catch (err) { fail(); }
+    // On a TV, the whole file (a stream with no length never "ends" there).
+    const est = 6000 + String(c.reply || '').split(' ').length * 600 + (c.streaming ? 20000 : 0);
+    try { play('/api/tts/' + c.id + (IS_TV ? '?full=1' : ''), fail, start, release, est); } catch (err) { fail(); }
     return true;
   }
   // One sound at a time: the answer waits for "let me think" to finish. The
@@ -1017,6 +1019,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   // this one player is approved by the first press (a moment of silence) and
   // then plays every answer. Sounds queue: the answer waits for "let me think".
   const player = new Audio();
+  const IS_TV = /Tizen|SMART-TV|Web0S|NetCast/i.test(navigator.userAgent);
   let soundOn = false, current = null;
   const sounds = [];
   const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -1038,15 +1041,26 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       if (p && p.then) p.then(ok, (e) => tvReport('voice still blocked: ' + (e && e.name))); else ok();
     } catch (err) { /* no sound on this set */ }
   }
-  function play(src, fallback, onStart, onEnd) {
-    sounds.push({ src, fallback, onStart, onEnd, tries: 0 });
+  function play(src, fallback, onStart, onEnd, est) {
+    sounds.push({ src, fallback, onStart, onEnd, tries: 0, est: est || 15000 });
     if (!current) nextSound();
   }
   function nextSound() {
     const sd = current = sounds.shift() || null;
     if (!sd) return;
     let done = false;
-    const finish = () => { if (done) return; done = true; current = null; nextSound(); };
+    const finish = () => { if (done) return; done = true; clearInterval(watch); current = null; nextSound(); };
+    const began = Date.now();
+    const watch = setInterval(() => {
+      const d = player.duration;
+      const over = isFinite(d) && d > 0 && player.currentTime >= d - 0.15;
+      if (over || Date.now() - began > sd.est + (isFinite(d) ? d * 1000 : 0)) {
+        if (!over) tvReport('voice timer freed the player for ' + sd.src);
+        if (sd.onStart) { const f = sd.onStart; sd.onStart = null; f(); }
+        if (sd.onEnd) sd.onEnd();
+        finish();
+      }
+    }, 1000);
     const giveUp = (why) => {
       if (done) return;
       tvReport('voice failed (' + why + ') for ' + sd.src);

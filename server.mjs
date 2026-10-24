@@ -1536,9 +1536,9 @@ const server = http.createServer(async (req, res) => {
     }
     const tts = url.pathname.match(/^\/api\/tts\/(\d+|filler-\d)(\.\w+)?$/);
     if (tts) {
-      // Still being voiced: stream it as it comes.
+      // Still being voiced: stream it as it comes (or, for TVs, wait for the whole file).
       const live = ttsLive.get(tts[1]);
-      if (live) return live.attach(res);
+      if (live && !url.searchParams.get('full')) return live.attach(res);
       const job = ttsJobs.get(tts[1]);
       return sendAudio(res, job ? await job : [path.join(TTS, `${tts[1]}.mp3`), path.join(TTS, `${tts[1]}.wav`)].find(f => fs.existsSync(f)));
     }

@@ -1123,14 +1123,16 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       start();
       fallback();
     };
+    const est = 6e3 + String(c.reply || "").split(" ").length * 600 + (c.streaming ? 2e4 : 0);
     try {
-      play("/api/tts/" + c.id, fail, start, release);
+      play("/api/tts/" + c.id + (IS_TV ? "?full=1" : ""), fail, start, release, est);
     } catch (err) {
       fail();
     }
     return true;
   }
   const player = new Audio();
+  const IS_TV = /Tizen|SMART-TV|Web0S|NetCast/i.test(navigator.userAgent);
   let soundOn = false, current = null;
   const sounds = [];
   const SILENCE = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
@@ -1160,8 +1162,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     } catch (err) {
     }
   }
-  function play(src, fallback, onStart, onEnd) {
-    sounds.push({ src, fallback, onStart, onEnd, tries: 0 });
+  function play(src, fallback, onStart, onEnd, est) {
+    sounds.push({ src, fallback, onStart, onEnd, tries: 0, est: est || 15e3 });
     if (!current) nextSound();
   }
   function nextSound() {
@@ -1171,9 +1173,25 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const finish = () => {
       if (done) return;
       done = true;
+      clearInterval(watch);
       current = null;
       nextSound();
     };
+    const began = Date.now();
+    const watch = setInterval(() => {
+      const d = player.duration;
+      const over = isFinite(d) && d > 0 && player.currentTime >= d - 0.15;
+      if (over || Date.now() - began > sd.est + (isFinite(d) ? d * 1e3 : 0)) {
+        if (!over) tvReport("voice timer freed the player for " + sd.src);
+        if (sd.onStart) {
+          const f = sd.onStart;
+          sd.onStart = null;
+          f();
+        }
+        if (sd.onEnd) sd.onEnd();
+        finish();
+      }
+    }, 1e3);
     const giveUp = (why) => {
       if (done) return;
       tvReport("voice failed (" + why + ") for " + sd.src);
