@@ -1012,29 +1012,67 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   }
   // One sound at a time: the answer waits for "let me think" to finish. The
   // answer starts loading straight away (it streams while it's being voiced).
-  let playing = null;
-  function play(src, fallback, onStart, onEnd, retried) {
-    const a = new Audio(src);
-    if (onStart) a.addEventListener('playing', onStart);
-    // A sound that breaks or won't start: fetch the finished file once more, then the fallback.
-    let failed = false;
-    const fail = () => {
-      if (failed) return; failed = true;
-      if (playing === a) playing = null;
-      if (!retried) setTimeout(() => play(src + (src.indexOf('?') < 0 ? '?' : '&') + 'again=1', fallback, onStart, onEnd, true), 1200);
-      else if (fallback) fallback();
-    };
-    a.addEventListener('error', fail);
-    const go = () => {
-      playing = a;
-      a.onended = () => { if (playing === a) playing = null; if (onEnd) onEnd(); };
-      const p = a.play();
-      if (p && p.catch) p.catch(fail);
-    };
-    const prev = playing;
-    if (prev && !prev.paused && !prev.ended) prev.onended = () => { if (playing === prev) playing = null; go(); };
-    else go();
+  // One sound player for the whole page. TV browsers only let a page play sound
+  // after a button press on it, and some want every new player approved; so
+  // this one player is approved by the first press (a moment of silence) and
+  // then plays every answer. Sounds queue: the answer waits for "let me think".
+  const player = new Audio();
+  let soundOn = false, current = null;
+  const sounds = [];
+  const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+  function tvReport(msg) {
+    try {
+      const x = new XMLHttpRequest();
+      x.open('POST', '/api/client-log');
+      x.withCredentials = true;
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.send(JSON.stringify({ msg: 'tv: ' + msg }));
+    } catch (err) { /* nowhere to say it */ }
   }
+  function unlockSound() {
+    if (soundOn || current) return;
+    try {
+      player.src = SILENCE;
+      const p = player.play();
+      const ok = () => { if (!soundOn) tvReport('voice turned on'); soundOn = true; fsCheck(); if (!current) nextSound(); };
+      if (p && p.then) p.then(ok, (e) => tvReport('voice still blocked: ' + (e && e.name))); else ok();
+    } catch (err) { /* no sound on this set */ }
+  }
+  function play(src, fallback, onStart, onEnd) {
+    sounds.push({ src, fallback, onStart, onEnd, tries: 0 });
+    if (!current) nextSound();
+  }
+  function nextSound() {
+    const sd = current = sounds.shift() || null;
+    if (!sd) return;
+    let done = false;
+    const finish = () => { if (done) return; done = true; current = null; nextSound(); };
+    const giveUp = (why) => {
+      if (done) return;
+      tvReport('voice failed (' + why + ') for ' + sd.src);
+      if (sd.fallback) sd.fallback();
+      if (sd.onEnd) sd.onEnd();
+      finish();
+    };
+    // A sound that breaks or won't start: fetch the finished file once more, then the fallback.
+    const fail = (why) => {
+      if (done) return;
+      if (sd.tries++ >= 1) return giveUp(why);
+      setTimeout(() => {
+        if (done) return;
+        player.src = sd.src + (sd.src.indexOf('?') < 0 ? '?' : '&') + 'again=1';
+        const p = player.play();
+        if (p && p.catch) p.catch((e) => giveUp(e && e.name));
+      }, 1200);
+    };
+    player.onplaying = () => { soundOn = true; if (sd.onStart) { const f = sd.onStart; sd.onStart = null; f(); } };
+    player.onended = () => { if (sd.onEnd) sd.onEnd(); finish(); };
+    player.onerror = () => fail('error ' + (player.error && player.error.code));
+    player.src = sd.src;
+    const p = player.play();
+    if (p && p.catch) p.catch((e) => { if (e && e.name === 'NotAllowedError') { soundOn = false; fsCheck(); } fail(e && e.name); });
+  }
+
   function runCommand(c) {
     if (c.action === 'announce') {
       const go = () => { showSay('', c.reply); if (c.panel) zoom(c.panel, 20); };
@@ -1149,14 +1187,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   setTimeout(() => location.reload(), 6 * 3600e3);
 
   sound.arm();
-  for (const type of ['keydown', 'click', 'touchstart', 'mousedown']) addEventListener(type, sound.arm, true);
+  for (const type of ['keydown', 'click', 'touchstart', 'mousedown']) { addEventListener(type, sound.arm, true); addEventListener(type, unlockSound, true); }
 
   // Full screen: a browser only allows it after a button press, so the first
   // press of any remote button (OK, an arrow...) puts Jarvis full screen and
   // hides the browser's address bar. A small note says so until then.
   const fsNote = document.createElement('div');
   fsNote.id = 'fs-note';
-  fsNote.textContent = 'Press OK on the remote for full screen';
+  fsNote.textContent = 'Press OK on the remote to turn on Jarvis\'s voice';
   document.body.appendChild(fsNote);
   const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
   const goFull = () => {
@@ -1164,7 +1202,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
     if (req) { try { const r = req.call(el); if (r && r.catch) r.catch(() => {}); } catch (err) { /* not allowed here */ } }
   };
-  const fsCheck = () => { fsNote.style.display = isFull() || stacked || window.innerHeight >= screen.height - 4 ? 'none' : 'block'; };
+  const fsCheck = () => {
+    const full = isFull() || stacked || window.innerHeight >= screen.height - 4;
+    fsNote.textContent = !soundOn ? 'Press OK on the remote to turn on Jarvis\'s voice' : 'Press OK on the remote for full screen';
+    fsNote.style.display = full && soundOn ? 'none' : 'block';
+  };
   for (const type of ['keydown', 'click', 'touchstart']) addEventListener(type, goFull, true);
   document.addEventListener('webkitfullscreenchange', () => { fsCheck(); setTimeout(layout, 300); });
   document.addEventListener('fullscreenchange', () => { fsCheck(); setTimeout(layout, 300); });
