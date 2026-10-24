@@ -14,9 +14,11 @@ async function tunnel(fresh) {
 }
 
 export default async function handler(req, res) {
-  if (!authed(req)) return res.status(401).json({ error: 'login' });
   const q = { ...req.query };
   const p = String(q.p || '/'); delete q.p;
+  // A TV's media player fetches sound without the login cookie; voice files are
+  // signed instead, and the Jarvis PC checks the signature.
+  if (!authed(req) && !(p.startsWith('/api/tts/') && q.sig)) return res.status(401).json({ error: 'login' });
   const qs = new URLSearchParams(q).toString();
   const init = { method: req.method, headers: { 'x-jarvis-relay': process.env.RELAY_SECRET || '', 'content-type': req.headers['content-type'] || 'application/json' } };
   if (req.headers.range) init.headers.range = req.headers.range;

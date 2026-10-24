@@ -1110,7 +1110,13 @@ function remember(c) {
   log('info', 'voice', `"${c.heard}"`, { quiet: true });
   log('info', 'jarvis', c.reply, { quiet: true });
 }
+// A TV hands sound to its own media player, which fetches the file without the
+// login cookie; so each voice file's address carries a signature instead, and
+// the live site lets a signed address through.
+function ttsSig(name) { return crypto.createHmac('sha256', RELAY_SECRET || 'local').update('tts:' + name).digest('hex').slice(0, 20); }
 function pushCommand(c) {
+  c.sig = ttsSig(String(c.id));
+  if (c.filler) c.fillerSig = ttsSig(c.filler);
   commands.push(c);
   if (commands.length > 50) commands.shift();
   return c;
@@ -1190,9 +1196,7 @@ async function hear(text) {
 
 // Jarvis says something without being asked (a client replied, the Mac stopped).
 function announce(text, panel) {
-  const c = { id: nextCommandId++, at: new Date().toISOString(), heard: '', action: 'announce', panel, reply: text };
-  commands.push(c);
-  if (commands.length > 50) commands.shift();
+  const c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard: '', action: 'announce', panel, reply: text });
   speakToFile(c);
 }
 
@@ -1549,6 +1553,7 @@ const server = http.createServer(async (req, res) => {
     }
     const tts = url.pathname.match(/^\/api\/tts\/(\d+|filler-\d)(\.\w+)?$/);
     if (tts) {
+      if (req.headers['cf-connecting-ip'] && url.searchParams.get('sig') !== ttsSig(tts[1])) return send(res, 403, 'Not signed', 'text/plain');
       // Still being voiced: stream it as it comes (or, for TVs, wait for the whole file).
       const live = ttsLive.get(tts[1]);
       if (live && !url.searchParams.get('full')) return live.attach(res);

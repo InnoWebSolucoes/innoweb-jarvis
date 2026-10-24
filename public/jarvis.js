@@ -1128,7 +1128,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     };
     const est = 6e3 + String(c.reply || "").split(" ").length * 600 + (c.streaming ? 2e4 : 0);
     try {
-      play("/api/tts/" + c.id + (IS_TV ? "?full=1" : ""), fail, start, release, est);
+      play("/api/tts/" + c.id + "?sig=" + (c.sig || "") + (IS_TV ? "&full=1" : ""), fail, start, release, est);
     } catch (err) {
       fail();
     }
@@ -1233,7 +1233,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     player.onerror = () => fail("error " + (player.error && player.error.code));
     player.src = sd.src;
     const p = player.play();
-    if (reports++ < 12) tvReport("playing " + sd.src.replace(/^.*\/api\/tts\//, "") + ", voice " + (soundOn ? "on" : "not turned on yet"));
+    if (reports++ < 12) tvReport("playing " + sd.src.replace(/^.*\/api\/tts\//, "").replace(/sig=[a-f0-9]+&?/, "") + ", voice " + (soundOn ? "on" : "not turned on yet"));
     if (p && p.catch) p.catch((e) => {
       if (e && e.name === "NotAllowedError") {
         soundOn = false;
@@ -1256,7 +1256,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (c.action === "thinking") {
       if (c.filler && !muted && S && S.board && S.board.tvSpeaks) {
         try {
-          play("/api/tts/" + c.filler, null, null, null, 3500);
+          play("/api/tts/" + c.filler + "?sig=" + (c.fillerSig || ""), null, null, null, 3500);
         } catch (err) {
         }
       }
