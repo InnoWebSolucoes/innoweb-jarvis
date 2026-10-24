@@ -1181,11 +1181,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       nextSound();
     };
     const began = Date.now();
+    let lastT = -1, still = 0;
     const watch = setInterval(() => {
-      const d = player.duration;
-      const over = isFinite(d) && d > 0 && player.currentTime >= d - 0.15;
+      const d = player.duration, t = player.currentTime;
+      still = t > 0.2 && Math.abs(t - lastT) < 0.01 ? still + 1 : 0;
+      lastT = t;
+      const over = isFinite(d) && d > 0 && t >= d - 0.15 || still >= 3;
       if (over || Date.now() - began > sd.est + (isFinite(d) ? d * 1e3 : 0)) {
-        if (!over) tvReport("voice timer freed the player for " + sd.src);
+        if (!over) tvReport("voice timer freed the player for " + sd.src + " (at " + t.toFixed(1) + "s of " + d + ", paused " + player.paused + ", ready " + player.readyState + ")");
         if (sd.onStart) {
           const f = sd.onStart;
           sd.onStart = null;
@@ -1194,7 +1197,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         if (sd.onEnd) sd.onEnd();
         finish();
       }
-    }, 1e3);
+    }, 500);
     const giveUp = (why) => {
       if (done) return;
       tvReport("voice failed (" + why + ") for " + sd.src);
@@ -1250,7 +1253,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (c.action === "thinking") {
       if (c.filler && !muted && S && S.board && S.board.tvSpeaks) {
         try {
-          play("/api/tts/" + c.filler);
+          play("/api/tts/" + c.filler, null, null, null, 3500);
         } catch (err) {
         }
       }

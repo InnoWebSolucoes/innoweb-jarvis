@@ -1053,17 +1053,22 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (!sd) return;
     let done = false;
     const finish = () => { if (done) return; done = true; clearInterval(watch); current = null; nextSound(); };
+    // Some TVs never say a sound has ended: it's over when it reaches its length,
+    // or when it has played and stopped moving for a second and a half.
     const began = Date.now();
+    let lastT = -1, still = 0;
     const watch = setInterval(() => {
-      const d = player.duration;
-      const over = isFinite(d) && d > 0 && player.currentTime >= d - 0.15;
+      const d = player.duration, t = player.currentTime;
+      still = t > 0.2 && Math.abs(t - lastT) < 0.01 ? still + 1 : 0;
+      lastT = t;
+      const over = (isFinite(d) && d > 0 && t >= d - 0.15) || still >= 3;
       if (over || Date.now() - began > sd.est + (isFinite(d) ? d * 1000 : 0)) {
-        if (!over) tvReport('voice timer freed the player for ' + sd.src);
+        if (!over) tvReport('voice timer freed the player for ' + sd.src + ' (at ' + t.toFixed(1) + 's of ' + d + ', paused ' + player.paused + ', ready ' + player.readyState + ')');
         if (sd.onStart) { const f = sd.onStart; sd.onStart = null; f(); }
         if (sd.onEnd) sd.onEnd();
         finish();
       }
-    }, 1000);
+    }, 500);
     const giveUp = (why) => {
       if (done) return;
       tvReport('voice failed (' + why + ') for ' + sd.src);
@@ -1100,7 +1105,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       return;
     }
     if (c.action === 'thinking') {
-      if (c.filler && !muted && S && S.board && S.board.tvSpeaks) { try { play('/api/tts/' + c.filler); } catch (err) { /* no sound */ } }
+      if (c.filler && !muted && S && S.board && S.board.tvSpeaks) { try { play('/api/tts/' + c.filler, null, null, null, 3500); } catch (err) { /* no sound */ } }
       showSay(c.heard, 'Thinking');
       $('say').className = 'show thinking';
       return;

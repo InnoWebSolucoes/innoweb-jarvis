@@ -63,7 +63,16 @@ const TTS = path.join(DATA, 'tts');
 // ---------------------------------------------------------------- live log
 
 // Changes whenever the server restarts with new code; open TVs reload to pick it up.
-const BUILD = String(Date.now());
+// The screens reload when this changes. It follows the dashboard's own files, not
+// the server's start time: a TV only plays sound after a press of OK, and every
+// reload undoes that, so restarting Jarvis alone mustn't reload the TV.
+function buildId() {
+  const h = crypto.createHash('md5');
+  for (const f of ['index.html', 'jarvis.js', 'jarvis.css']) { try { h.update(fs.readFileSync(path.join(ROOT, 'public', f))); } catch {} }
+  return h.digest('hex').slice(0, 12);
+}
+let BUILD = buildId();
+setInterval(() => { BUILD = buildId(); }, 30000);
 
 const events = [];
 const seenKeys = new Set();  // source items already in the log (FlowDesk notification ids, lead finder events...)
