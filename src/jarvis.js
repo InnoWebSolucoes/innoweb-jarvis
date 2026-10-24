@@ -994,7 +994,10 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     sayTimer = setTimeout(() => { $('say').className = ''; }, Math.max(6000, (reply || '').split(' ').length * 420));
   }
   function speak(c, onStart) {
-    if (muted || !(c.reply || c.streaming) || !(S && S.board && S.board.tvSpeaks)) return false;
+    if (muted || !(c.reply || c.streaming) || !(S && S.board && S.board.tvSpeaks)) {
+      if (c.reply || c.streaming) tvReport('answer ' + c.id + ' not spoken: ' + (muted ? 'muted' : !(S && S.board) ? 'no data yet' : 'TV speech is off'));
+      return false;
+    }
     const fallback = () => {
       if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
       const u = new SpeechSynthesisUtterance(c.reply);
@@ -1084,8 +1087,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     player.onerror = () => fail('error ' + (player.error && player.error.code));
     player.src = sd.src;
     const p = player.play();
+    if (reports++ < 12) tvReport('playing ' + sd.src.replace(/^.*\/api\/tts\//, '') + ', voice ' + (soundOn ? 'on' : 'not turned on yet'));
     if (p && p.catch) p.catch((e) => { if (e && e.name === 'NotAllowedError') { soundOn = false; fsCheck(); } fail(e && e.name); });
   }
+  let reports = 0;
+  setTimeout(() => tvReport('page loaded on ' + location.host + ', voice ' + (soundOn ? 'on' : 'waiting for OK')), 3000);
 
   function runCommand(c) {
     if (c.action === 'announce') {
