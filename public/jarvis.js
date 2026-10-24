@@ -1145,14 +1145,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       x.open("POST", "/api/client-log");
       x.withCredentials = true;
       x.setRequestHeader("Content-Type", "application/json");
-      x.send(JSON.stringify({ msg: "tv: " + msg }));
+      x.send(JSON.stringify({ msg: (IS_TV ? "tv" : "screen " + innerWidth + "x" + innerHeight) + ": " + msg }));
     } catch (err) {
     }
   }
   function unlockSound() {
-    if (soundOn || current) return;
+    if (soundOn) return;
     try {
-      player.src = SILENCE;
+      if (!current) player.src = SILENCE;
       const p = player.play();
       const ok = () => {
         if (!soundOn) tvReport("voice turned on");
@@ -1160,7 +1160,10 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         fsCheck();
         if (!current) nextSound();
       };
-      if (p && p.then) p.then(ok, (e) => tvReport("voice still blocked: " + (e && e.name)));
+      if (p && p.then) p.then(ok, (e) => {
+        if (e && e.name === "AbortError") ok();
+        else tvReport("voice still blocked: " + (e && e.name));
+      });
       else ok();
     } catch (err) {
     }

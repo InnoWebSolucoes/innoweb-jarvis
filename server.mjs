@@ -1400,9 +1400,13 @@ function voice(id, text) {
   return v.job;
 }
 
+// A finished voice file, with its length (without it, TVs and phones can't tell
+// how long the sound is or when it has ended).
 function sendAudio(res, file) {
   if (!file || !fs.existsSync(file)) return send(res, 404, 'Not found', 'text/plain');
-  return send(res, 200, fs.readFileSync(file), file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav');
+  const data = fs.readFileSync(file);
+  res.writeHead(200, { 'Content-Type': file.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav', 'Content-Length': data.length, 'Accept-Ranges': 'none', 'Cache-Control': 'no-store' });
+  res.end(data);
 }
 
 function speakToFile(c) {
