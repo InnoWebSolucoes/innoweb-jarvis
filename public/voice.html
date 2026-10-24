@@ -63,7 +63,7 @@
   </div>
 
   <div class="opts">
-    <label><input type="checkbox" id="always"> Always listening (start with "Jarvis")</label>
+    <label><input type="checkbox" id="always"> Always listening <span id="always-note">(start with "Jarvis")</span></label>
     <label><input type="checkbox" id="speakHere"> Speak here (<span id="voiceName">voice</span>)</label>
     <select id="lang" aria-label="Language">
       <option value="en-GB">English</option>
@@ -90,6 +90,19 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // On a phone the mic is right by your mouth: always listening takes everything, no "Jarvis" needed.
+  const PHONE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  // What the mic heard and what went wrong goes to Jarvis's log, so problems can be seen from the PC.
+  function report(msg) {
+    try {
+      const x = new XMLHttpRequest();
+      x.open('POST', '/api/client-log');
+      x.withCredentials = true;
+      x.setRequestHeader('Content-Type', 'application/json');
+      x.send(JSON.stringify({ msg: 'voice page (' + (PHONE ? 'phone' : 'computer') + '): ' + msg }));
+    } catch (e) {}
+  }
+  report('opened; speech recognition ' + (SR ? 'available' : 'MISSING') + ', secure ' + window.isSecureContext + ', ' + navigator.userAgent.slice(0, 90));
   // Speech recognition writes "Jarvis" many ways; any of them wakes her.
   const WAKE = /\b(hey |ok |okay )?(jarvis|jarvis's|jervis|javis|travis|charvis|garvis|jarvas|jarves|jarvi|jarbas|harvis|jarvus|jarvish|chavis|davis|jarviz|jarvice|jaavis|jarv)\b[,.!?]?/i;
   // After she answers, the next 20 seconds need no "Jarvis": a conversation.
@@ -158,6 +171,7 @@
       if (c && c.id && c.reply && shown.indexOf(c.id) < 0) { shown.push(c.id); showLine(c); say(c.reply); }
       status(listening ? (always() ? 'Listening for "Jarvis"' : 'Listening…') : 'Tap and speak');
     } catch (err) {
+      report('sending failed: ' + (err && err.message));
       say('I cannot reach the Jarvis server.');
       status('The Jarvis server is not answering');
     }
@@ -217,18 +231,19 @@
     rec.lang = $('lang').value;
     rec.interimResults = true;
     rec.continuous = always();
-    rec.onstart = () => { running = true; };
+    rec.onstart = () => { running = true; if (!listen.reported) { listen.reported = true; report('microphone on'); } };
     rec.onresult = (e) => {
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i], t = r[0].transcript;
         if (!r.isFinal) { interim += t; continue; }
         $('interim').textContent = '';
-        if (!always()) { send(t); continue; }
+        if (!always()) { report('heard "' + t + '"'); send(t); continue; }
         // Always listening: act on what follows "Jarvis" (even when the final
         // words lost it), on the sentence after a lone "Jarvis", or on anything
         // said in the 20 seconds after she answered.
-        const woke = WAKE.test(t) || wakeInInterim;
+        const woke = WAKE.test(t) || wakeInInterim || PHONE;
+        report('heard "' + t + '"' + (woke || Date.now() < followUntil || Date.now() - wokeAt < 10000 ? '' : ' (not sent: no Jarvis)'));
         wakeInInterim = false;
         const rest = t.replace(WAKE, ' ').trim();
         if (woke) {
@@ -241,7 +256,10 @@
       if (WAKE.test(interim)) { wakeInInterim = true; status('Listening to you…'); }
     };
     rec.onerror = (e) => {
+      if (e.error !== 'no-speech' && e.error !== 'aborted') report('error ' + e.error);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { stop(); status('Microphone blocked. Allow it in the browser settings.'); }
+      else if (e.error === 'network') status('Speech recognition needs the internet. Retrying…');
+      else if (e.error === 'audio-capture') status('No microphone found.');
     };
     rec.onend = () => { running = false; if (listening && !speaking) setTimeout(listen, 150); };
     try { rec.start(); } catch { running = false; }
@@ -267,6 +285,7 @@
   $('always').onchange = () => { store('jarvis-always', always() ? '1' : '0'); if (always()) restart(); else stop(); };
   // ?listen in the address turns "Always listening" on straight away.
   if (/[?&]listen/.test(location.search)) store('jarvis-always', '1');
+  if (PHONE) $('always-note').textContent = '(no need to say Jarvis)';
   if (store('jarvis-always') === '1' && SR && window.isSecureContext) { $('always').checked = true; start(); }
 })();
 </script>
