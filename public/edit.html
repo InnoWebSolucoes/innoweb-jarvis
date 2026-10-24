@@ -142,7 +142,7 @@
 
 <script id="jarvis-login-check">
   // On the live site, ask for the password first.
-  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+  fetch('/api/state', { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
 </script>
 <script>
 (() => {
@@ -170,7 +170,7 @@
   }
 
   async function load() {
-    const res = await fetch('/api/board', { cache: 'no-store' });
+    const res = await fetch('/api/board', { cache: 'no-store', credentials: 'same-origin' });
     const j = await res.json();
     board = j.board;
     $('pw-box').hidden = !j.needsPassword;
@@ -221,7 +221,7 @@
   }
 
   async function post(url, data) {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-jarvis-key': key() }, body: JSON.stringify(data) });
+    const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'x-jarvis-key': key() }, body: JSON.stringify(data) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || res.status);
     try { if (key()) localStorage.setItem('jarvis-key', key()); } catch {}

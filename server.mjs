@@ -651,9 +651,29 @@ async function publishTunnel(url) {
   });
   if (!res.ok) throw new Error(`publish tunnel ${res.status}`);
 }
+// Cloudflare's free tunnels sometimes go dead while cloudflared keeps running:
+// every minute Jarvis fetches a small file through its own tunnel, and after
+// two misses in a row it starts a new tunnel (which publishes its new address).
+let tunnelProc = null, tunnelStarted = 0, tunnelMisses = 0;
+setInterval(async () => {
+  if (!tunnelProc || !state.tunnel || Date.now() - tunnelStarted < 90000) return;
+  try {
+    const res = await fetch(`${state.tunnel}/mark.svg`, { headers: { 'x-jarvis-relay': RELAY_SECRET }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(String(res.status));
+    tunnelMisses = 0;
+  } catch (err) {
+    if (++tunnelMisses >= 2) {
+      log('warn', 'jarvis', 'The live site lost its connection; reconnecting', { quiet: true });
+      tunnelMisses = 0;
+      try { tunnelProc.kill(); } catch {}
+    }
+  }
+}, 60000);
+
 function startTunnel() {
   if (!RELAY_SECRET || !fs.existsSync(TUNNEL_BIN)) return;
-  const cf = spawn(TUNNEL_BIN, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { windowsHide: true });
+  tunnelStarted = Date.now();
+  const cf = tunnelProc = spawn(TUNNEL_BIN, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { windowsHide: true });
   const seen = (d) => {
     const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (m && m[0] !== state.tunnel) {
@@ -662,7 +682,7 @@ function startTunnel() {
     }
   };
   cf.stdout.on('data', seen); cf.stderr.on('data', seen);
-  cf.on('close', () => { state.tunnel = null; setTimeout(startTunnel, 15000); });
+  cf.on('close', () => { if (tunnelProc === cf) tunnelProc = null; state.tunnel = null; setTimeout(startTunnel, 5000); });
 }
 
 function shootSites(onlyMissing) {

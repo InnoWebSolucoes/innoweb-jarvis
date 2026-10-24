@@ -28,11 +28,22 @@
   <div id="msg"></div>
 </form>
 <script>
-  document.getElementById('f').onsubmit = async (e) => {
+  // XMLHttpRequest, not fetch: the TV's browser (Chrome 56) drops the login
+  // cookie from a fetch reply, which sent it straight back here.
+  document.getElementById('f').onsubmit = function (e) {
     e.preventDefault();
-    const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: document.getElementById('pw').value }) });
-    if (res.ok) location.href = new URLSearchParams(location.search).get('next') || '/';
-    else document.getElementById('msg').textContent = 'That password is not right.';
+    var x = new XMLHttpRequest();
+    x.open('POST', '/api/login');
+    x.withCredentials = true;
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function () {
+      if (x.status === 200) {
+        var m = /[?&]next=([^&]*)/.exec(location.search);
+        location.href = m ? decodeURIComponent(m[1]) : '/';
+      } else document.getElementById('msg').textContent = 'That password is not right.';
+    };
+    x.onerror = function () { document.getElementById('msg').textContent = 'Could not reach Jarvis. Try again.'; };
+    x.send(JSON.stringify({ password: document.getElementById('pw').value }));
   };
 </script>
 </body>

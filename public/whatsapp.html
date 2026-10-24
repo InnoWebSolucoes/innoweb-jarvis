@@ -25,13 +25,13 @@
 </main>
 <script id="jarvis-login-check">
   // On the live site, ask for the password first.
-  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+  fetch('/api/state', { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
 </script>
 <script>
   // The code changes every few seconds until it is scanned; this keeps it current.
   async function poll() {
     try {
-      const wa = (await (await fetch('/api/state', { cache: 'no-store' })).json()).whatsapp || {};
+      const wa = (await (await fetch('/api/state', { cache: 'no-store', credentials: 'same-origin' })).json()).whatsapp || {};
       const qr = document.getElementById('qr'), st = document.getElementById('state');
       if (wa.ready) { qr.hidden = true; st.innerHTML = 'Linked. Jarvis is reading <b>' + (wa.chat || 'the group') + '</b>. You can close this page.'; }
       else if (wa.qr) { qr.src = wa.qr; qr.hidden = false; st.textContent = 'Waiting for the scan…'; }

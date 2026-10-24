@@ -84,7 +84,7 @@
 
 <script id="jarvis-login-check">
   // On the live site, ask for the password first.
-  fetch('/api/state', { cache: 'no-store' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
+  fetch('/api/state', { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { if (r.status === 401) location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search); }).catch(function () {});
 </script>
 <script>
 (() => {
@@ -152,7 +152,7 @@
     if (!text) return;
     status('Thinking…');
     try {
-      const c = await (await fetch('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+      const c = await (await fetch('/api/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
       followUntil = Date.now() + 20000 + Math.min(15000, String((c && c.reply) || '').split(' ').length * 350);
       // An answer that streamed to the TV is shown here once it's complete.
       if (c && c.id && c.reply && shown.indexOf(c.id) < 0) { shown.push(c.id); showLine(c); say(c.reply); }
@@ -177,7 +177,7 @@
   }
   async function poll() {
     try {
-      const r = await (await fetch('/api/commands' + (last == null ? '' : '?after=' + last), { cache: 'no-store' })).json();
+      const r = await (await fetch('/api/commands' + (last == null ? '' : '?after=' + last), { cache: 'no-store', credentials: 'same-origin' })).json();
       if (last == null) { last = r.last; return; }
       for (const c of r.commands) {
         last = Math.max(last, c.id);
