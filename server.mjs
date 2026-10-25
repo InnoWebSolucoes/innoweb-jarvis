@@ -884,7 +884,7 @@ function rules(raw) {
   return null;
 }
 
-const ACTIONS = ['none', 'todo_tick', 'whatsapp_send', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'todo_tick', 'todo_add', 'task_done', 'task_move', 'goal_add', 'goal_set', 'whatsapp_send', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
@@ -903,6 +903,11 @@ You can also act on the TV by choosing an action:
 - whatsapp_open: show WhatsApp on the TV with one chat open: set chat to the name exactly as it is in whatsapp.chatNames, the one they most likely meant (speech recognition mangles names: "eno webb" is InnoWeb, "so my order" is Sol Maior).
  whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list.
 - todo_tick: tick an item off the admin to-do list (adminTodoList.open): set task to the item's title exactly as on the list. Jarvis ticks it in FlowDesk.
+- todo_add: add an item to the admin to-do list: set task (the item, short, in the language said), due (YYYY-MM-DD if a day was said, else empty), assignee (a first name if it's for someone, else empty).
+- task_done: tick off one of a team member's tasks (flowdesk.people[].openTasks): set assignee (their first name) and task (the task's title as listed).
+- task_move: move one of a team member's dated tasks to another day: set assignee, task (title as listed) and due (the new day, YYYY-MM-DD).
+- goal_add: money came in ("we made 300 euros"): set amount (the number). goal_set: the goal amount is now a figure ("set it to 320"): set amount.
+- add_task is for a new task for a team member (with due as the day); todo_add is for the admin's own to-do list. Work out dates from today's date in the data ("Friday" is the coming Friday).
 - whatsapp_send: only when WhatsApp is showing on the TV and they clearly ask you to send or type a message: set chat (the name exactly as in whatsapp.chatNames, or empty for the chat that's open) and text (exactly the words to send, nothing added). Jarvis reads it back and sends it only after they say yes.
 - backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
@@ -1099,8 +1104,12 @@ function todoIntent(heard, alts) {
     const pick = pos != null ? todoChoice.options[pos] : (() => { const r = rankTodos([heard, ...alts], todoChoice.options.map(o => o.title))[0]; return r && r.score >= 0.5 ? todoChoice.options.find(o => o.title === r.name) : null; })();
     if (pick) { todoChoice = null; return { action: 'todo_tick', id: pick.id, title: pick.title }; }
   }
-  if (/\b(undo|put it back|untick|bring it back)\b/.test(t) && lastTick && Date.now() - lastTick.at < 5 * 60000) return { action: 'todo_undo' };
+  if (/\b(undo|put it back|untick|bring it back|take that back)\b/.test(t) && ((lastTick && Date.now() - lastTick.at < 5 * 60000) || (lastChange && Date.now() - lastChange.at < 5 * 60000))) return { action: 'todo_undo' };
   if (!/\b(tick|take|cross|mark|complete|completed|finish|finished|done|remove|check)\b/.test(t) || !open.length) return null;
+  // "Mark Esmael's flyers as done" is about a team member's task, not the admin list.
+  const people = (state.flowdesk.people || []).map(p => p.name.split(' ')[0]);
+  const named = people.length && rankNames([heard, ...alts], people, new Set())[0];
+  if (named && named.score >= 0.8) return null;
   const [a, b] = rankTodos([heard, ...alts], open.map(o => o.title));
   if (!a || a.score < 0.6) return null;
   if (b && b.score >= 0.6 && a.score - b.score < 0.05) {
@@ -1109,12 +1118,76 @@ function todoIntent(heard, alts) {
   }
   return { action: 'todo_tick', id: open.find(o => o.title === a.name).id, title: a.name };
 }
+// Who Jarvis is signed in to FlowDesk as (the admin), from the login token.
+function flowdeskMe(h) {
+  try { return JSON.parse(Buffer.from(String(h.Authorization).split(' ')[1].split('.')[1], 'base64url').toString()).sub || null; } catch { return null; }
+}
+async function flowdeskWrite(method, pathAndQuery, body) {
+  const h = await flowdeskHeaders();
+  const res = await fetch(`${FLOWDESK.url}/rest/v1/${pathAndQuery}`, {
+    method, headers: { ...h, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`FlowDesk ${res.status} ${(await res.text()).slice(0, 140)}`);
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : [];
+}
+// The person they meant, by sound, from the FlowDesk team (any of the guesses).
+function teamMember(said, alts = []) {
+  const people = (state.flowdesk.people || []).filter(p => p.id);
+  if (!people.length) return null;
+  const names = people.map(p => p.name.split(' ')[0]);
+  const r = rankNames([said, ...alts], names, new Set())[0];
+  return r && r.score >= 0.55 ? people[names.indexOf(r.name)] : null;
+}
+// The last change Jarvis made in FlowDesk, so "undo" can take it back (five minutes).
+let lastChange = null;
+// A task ticked off for someone, as FlowDesk does it: a completion record and an activity entry.
+async function completeFlowdeskTask(task, person) {
+  const now = new Date(), iso = now.toISOString(), today = localDate(now), h = now.getHours();
+  const timeOfDay = h < 11 ? 'early' : h < 13 ? 'mid-morning' : h < 16 ? 'afternoon' : 'end-of-day';
+  try {
+    await flowdeskWrite('POST', 'completion_logs', { task_id: task.id, employee_id: person.id, completed_at: iso, due_date: task.date || today, was_late: !!task.date && today > task.date, time_of_day: timeOfDay });
+  } catch (err) { if (!/23505|duplicate/.test(err.message)) throw err; }   // already ticked for that day
+  await flowdeskWrite('POST', 'activity_logs', { task_id: task.id, actor_id: person.id, action: 'completed', detail: 'Ticked off by voice through Jarvis' }).catch(() => {});
+}
+async function uncompleteFlowdeskTask(task, person) {
+  await flowdeskWrite('DELETE', `completion_logs?task_id=eq.${task.id}&employee_id=eq.${person.id}&due_date=eq.${task.date || localDate(new Date())}`);
+  await flowdeskWrite('POST', 'activity_logs', { task_id: task.id, actor_id: person.id, action: 'uncompleted', detail: 'Undone by voice through Jarvis' }).catch(() => {});
+}
+// A new item on the admin to-do list (FlowDesk's shared "To do" list), at the top.
+async function addAdminTodo({ title, doDate, assigneeId, urgent }) {
+  const h = await flowdeskHeaders();
+  const lists = await rest(FLOWDESK.url, 'project_todo_lists?select=id,name,owner_id,project_id&order=created_at.asc', h).catch(() => rest(FLOWDESK.url, 'project_todo_lists?select=id,name,owner_id&order=created_at.asc', h));
+  const list = lists.find(l => !l.owner_id && /to ?do/i.test(l.name || '')) || lists.find(l => !l.owner_id);
+  if (!list) throw new Error('no shared to-do list in FlowDesk');
+  const siblings = await rest(FLOWDESK.url, `project_todos?select=project_id,sort_order&list_id=eq.${list.id}&order=sort_order.asc&limit=1`, h);
+  const projectId = list.project_id || siblings[0]?.project_id;
+  const row = { project_id: projectId, owner_id: null, created_by: flowdeskMe(h), list_id: list.id, title, notes: '', is_urgent: !!urgent, sort_order: (siblings[0]?.sort_order ?? 0) - 1 };
+  try { return (await flowdeskWrite('POST', 'project_todos', { ...row, do_date: doDate || null, assignee_id: assigneeId || null }))[0]; }
+  catch { return (await flowdeskWrite('POST', 'project_todos', row))[0]; }   // before FlowDesk's do-date columns
+}
+// A dated (one-off) task moved to another day.
+async function moveFlowdeskTask(task, date) {
+  await flowdeskWrite('PATCH', `tasks?id=eq.${task.id}`, { frequency: { type: 'one-off', date } });
+}
+// The goal amount on the board (data/board.json).
+function setRevenue(amount) {
+  const b = JSON.parse(fs.readFileSync(BOARD_FILE, 'utf8'));
+  const was = b.achievements.revenue;
+  b.achievements.revenue = Math.max(0, Math.round(amount));
+  const tmp = BOARD_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(b, null, 2) + '\n');
+  fs.renameSync(tmp, BOARD_FILE);
+  refreshBoard();
+  return { was, now: b.achievements.revenue };
+}
+
 async function flowdeskTodo(id, done) {
   const h = await flowdeskHeaders();
   // Who ticked it: the admin Jarvis is signed in as.
   let me = null;
   try { me = JSON.parse(Buffer.from(String(h.Authorization).split(' ')[1].split('.')[1], 'base64url').toString()).sub || null; } catch {}
-  const body = done ? { is_completed: true, completed_at: new Date().toISOString(), completed_by: me } : { is_completed: false, completed_at: null, completed_by: null };
+  const body = done ? { is_completed: true, completed_at: new Date().toISOString(), completed_by: me, waiting_since: null } : { is_completed: false, completed_at: null, completed_by: null };
   const res = await fetch(`${FLOWDESK.url}/rest/v1/project_todos?id=eq.${encodeURIComponent(id)}`, {
     method: 'PATCH', headers: { ...h, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
   });
@@ -1139,6 +1212,9 @@ function waSendIntent(raw) {
   if (m) return { action: 'whatsapp_send', chat: '', text: m[1].replace(/^["']|["']$/g, ''), reply: '' };
   return null;
 }
+
+// Actions whose answer depends on doing them first (not streamed).
+const WAITS = new Set(['add_task', 'todo_tick', 'todo_add', 'task_done', 'task_move', 'goal_add', 'goal_set', 'todo_undo']);
 
 async function hear(text, alternatives = []) {
   const heard = String(text || '').trim().slice(0, 400);
@@ -1166,7 +1242,7 @@ async function hear(text, alternatives = []) {
     out = await askClaude(heard, {
       alts,
       head: (h) => {
-        if (h.action === 'add_task' || h.action === 'todo_tick' || /^whatsapp_/.test(h.action)) return;   // the reply depends on FlowDesk or WhatsApp
+        if (WAITS.has(h.action) || /^whatsapp_/.test(h.action)) return;   // the reply depends on FlowDesk, WhatsApp or the board
         c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...h, reply: '', streaming: true });
         talk = voiceStream(c.id);
         console.log(`voice: Claude started answering after ${Date.now() - t0} ms`);
@@ -1220,7 +1296,86 @@ async function hear(text, alternatives = []) {
       }
     }
   }
-  if (out.action === 'todo_undo') {
+  // Someone's task done: "mark Adilson's LinkedIn posts as done".
+  if (out.action === 'task_done') {
+    const person = teamMember(out.assignee || '', alts) || teamMember(heard, alts);
+    const tasks = person ? person.openTasks || [] : [];
+    const r = person && rankTodos([out.task || '', heard, ...alts], tasks.map(t => t.title))[0];
+    const task = r && r.score >= 0.55 ? tasks.find(t => t.title === r.name) : null;
+    if (!person) out = { action: 'none', reply: `Whose task is it, darling? The team is ${(state.flowdesk.people || []).map(p => p.name.split(' ')[0]).join(', ')}.` };
+    else if (!task) out = { action: 'none', reply: `I can't find that in ${person.name.split(' ')[0]}'s tasks. ${tasks.length ? `They have: ${tasks.slice(0, 3).map(t => t.title).join(', ')}.` : 'They have nothing open.'}` };
+    else {
+      try {
+        await completeFlowdeskTask(task, person);
+        lastChange = { kind: 'task_done', task, person, at: Date.now() };
+        log('info', 'flowdesk', `Jarvis ticked off "${task.title}" for ${person.name.split(' ')[0]}`, { panel: 'team' });
+        refreshFlowdesk();
+        out = { action: 'focus', panel: 'team', reply: `Done: "${task.title}" is ticked off for ${person.name.split(' ')[0]}. Say undo if that's wrong.` };
+      } catch (err) { log('warn', 'flowdesk', `Couldn't tick off "${task.title}": ${err.message}`, { panel: 'team' }); out = { action: 'none', reply: "FlowDesk wouldn't take that. The reason is in the live log." }; }
+    }
+  }
+  // A dated task moved: "move Vander's Espaço Luanda task to Monday".
+  if (out.action === 'task_move') {
+    const person = teamMember(out.assignee || '', alts) || teamMember(heard, alts);
+    const tasks = person ? person.openTasks || [] : [];
+    const r = person && rankTodos([out.task || '', heard, ...alts], tasks.map(t => t.title))[0];
+    const task = r && r.score >= 0.55 ? tasks.find(t => t.title === r.name) : null;
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(out.due || '') ? out.due : null;
+    if (!person || !task) out = { action: 'none', reply: "I couldn't work out which task to move, darling. Say whose it is and what it's called." };
+    else if (!date) out = { action: 'none', reply: `Move "${task.title}" to which day?` };
+    else {
+      try {
+        await moveFlowdeskTask(task, date);
+        lastChange = { kind: 'task_move', task, person, from: task.date, at: Date.now() };
+        const when = new Date(date + 'T12:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        log('info', 'flowdesk', `Jarvis moved "${task.title}" for ${person.name.split(' ')[0]} to ${when}`, { panel: 'team' });
+        refreshFlowdesk();
+        out = { action: 'focus', panel: 'team', reply: `Moved "${task.title}" to ${when}.` };
+      } catch (err) { log('warn', 'flowdesk', `Couldn't move "${task.title}": ${err.message}`, { panel: 'team' }); out = { action: 'none', reply: "FlowDesk wouldn't move it. The reason is in the live log." }; }
+    }
+  }
+  // A new admin to-do: "add call Okulya to the to-do list for Tuesday".
+  if (out.action === 'todo_add') {
+    const title = String(out.task || '').trim();
+    const doDate = /^\d{4}-\d{2}-\d{2}$/.test(out.due || '') ? out.due : null;
+    const person = out.assignee ? teamMember(out.assignee, alts) : null;
+    if (!title) out = { action: 'none', reply: 'What should I add to the to-do list, darling?' };
+    else {
+      try {
+        const row = await addAdminTodo({ title, doDate, assigneeId: person && person.id, urgent: !!out.urgent });
+        lastChange = { kind: 'todo_add', id: row && row.id, title, at: Date.now() };
+        log('info', 'flowdesk', `Jarvis added "${title}" to the to-do list${doDate ? ` for ${doDate}` : ''}`, { panel: 'todo' });
+        refreshFlowdesk();
+        out = { action: 'none', reply: `Added "${title}" to the to-do list${doDate ? ' for ' + new Date(doDate + 'T12:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) : ''}.` };
+      } catch (err) { log('warn', 'flowdesk', `Couldn't add "${title}" to the to-do list: ${err.message}`, { panel: 'todo' }); out = { action: 'none', reply: "FlowDesk wouldn't add that. The reason is in the live log." }; }
+    }
+  }
+  // The goal amount: "we made 300 euros" (adds) or "set the goal to 320" (sets).
+  if (out.action === 'goal_add' || out.action === 'goal_set') {
+    const n = Number(String(out.amount ?? '').replace(/[^0-9.\-]/g, ''));
+    if (!isFinite(n) || (out.action === 'goal_add' && !n)) out = { action: 'none', reply: 'How much, darling?' };
+    else {
+      const was = state.board?.achievements?.revenue || 0;
+      const r = setRevenue(out.action === 'goal_add' ? was + n : n);
+      lastChange = { kind: 'goal', was: r.was, at: Date.now() };
+      log('win', 'board', `The goal is at ${eur(r.now)} of ${eur(state.board?.achievements?.revenueGoal || 10000)}`, { panel: 'ach' });
+      out = { action: r.now > r.was ? 'celebrate' : 'none', reply: out.reply || `${r.now > r.was ? 'Yes! ' : ''}We're at ${eur(r.now)} of ${eur(state.board?.achievements?.revenueGoal || 10000)}.` };
+    }
+  }
+  // "Undo": the last change Jarvis made in FlowDesk or the goal, within five minutes.
+  if (out.action === 'todo_undo' && lastChange && (!lastTick || lastChange.at > lastTick.at) && Date.now() - lastChange.at < 5 * 60000) {
+    const c = lastChange; lastChange = null;
+    try {
+      if (c.kind === 'task_done') { await uncompleteFlowdeskTask(c.task, c.person); out = { action: 'none', reply: `"${c.task.title}" is open again for ${c.person.name.split(' ')[0]}.` }; }
+      else if (c.kind === 'task_move') { await moveFlowdeskTask(c.task, c.from); out = { action: 'none', reply: `"${c.task.title}" is back on its old day.` }; }
+      else if (c.kind === 'todo_add' && c.id) { await flowdeskWrite('DELETE', `project_todos?id=eq.${c.id}`); out = { action: 'none', reply: `Took "${c.title}" off the to-do list.` }; }
+      else if (c.kind === 'goal') { setRevenue(c.was); out = { action: 'none', reply: `The goal is back at ${eur(c.was)}.` }; }
+      else if (c.kind === 'task_add') { await flowdeskWrite('PATCH', `tasks?id=eq.${c.id}`, { is_active: false }); out = { action: 'none', reply: `Took "${c.title}" off.` }; }
+      log('info', 'jarvis', `Undone: ${out.reply}`, { panel: 'log' });
+      refreshFlowdesk();
+    } catch (err) { out = { action: 'none', reply: "I couldn't undo that one, darling." }; }
+  }
+  if (out.action === 'todo_undo' && lastTick) {
     try {
       await flowdeskTodo(lastTick.id, false);
       log('info', 'flowdesk', `Jarvis put "${lastTick.title}" back on the to-do list`, { panel: 'todo' });
@@ -1305,6 +1460,7 @@ async function addFlowdeskTask({ assignee, task, due }) {
     const [row] = await flowdeskPost('tasks', { title: task.trim(), description: 'Added by voice through Jarvis.', frequency: { type: 'one-off', date }, priority: 'medium', estimated_minutes: 0, created_by: admin.id, is_active: true, project_id: latest?.project_id }, h);
     await flowdeskPost('task_assignments', { task_id: row.id, employee_id: person.id }, h);
     const first = person.name.split(' ')[0];
+    lastChange = { kind: 'task_add', id: row.id, title: task.trim(), at: Date.now() };
     const when = date === localDate(new Date()) ? 'today' : new Date(date + 'T12:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
     log('info', 'flowdesk', `Jarvis added "${task.trim()}" for ${first}, due ${when}`, { panel: 'team' });
     refreshFlowdesk();
