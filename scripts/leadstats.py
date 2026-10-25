@@ -53,7 +53,29 @@ def tracker(rows):
     slots = plan.get('slots') or [] if plan.get('date') == datetime.now().astimezone().date().isoformat() else []
     upcoming = sorted([x for x in slots if x.get('status') in (None, '', 'planned', 'waiting', 'written') and x.get('at', '') > now.isoformat()], key=lambda x: x['at'])
     usage = burst.get('usage') or {}
+    # When something last happened in the active projects: a new lead, a WhatsApp out.
+    last_lead = rows(f'SELECT max(created_at) FROM leads WHERE project_id IN {ACTIVE_PROJECTS}')[0][0]
+    last_send = rows(f"SELECT max(updated_at) FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' AND lead_id IN {ACTIVE}")[0][0]
+    stamps = [datetime.fromisoformat(str(t).replace('Z', '+00:00')) for t in (last_lead, last_send) if t]
+    moved = max(stamps, default=None)
+    quiet = moved is None or (now - moved).total_seconds() > 2 * 3600
+    # Stuck, only when it's real: the UK finder says it's paused, or a finder
+    # paused on a list in a project that isn't archived and nothing has moved
+    # for two hours. (A paused cafés finder while the UK run keeps finding and
+    # sending isn't "stuck".)
+    uk_paused = setting(rows, 'uk_find_paused')
+    queue_active = False
+    if queue.get('paused') and queue.get('list_id'):
+        try:
+            r = rows('SELECT p.archived_at FROM lists li JOIN projects p ON p.id = li.project_id WHERE li.id = %s', queue['list_id'])
+            queue_active = bool(r) and r[0][0] is None
+        except Exception:
+            queue_active = False
+    stuck = (uk_paused if isinstance(uk_paused, str) and uk_paused else None) \
+        or (queue.get('paused') if queue_active and quiet else None) \
+        or (burst.get('paused') if burst.get('paused') and quiet else None)
     return {
+        'stuck': stuck, 'lastLeadAt': last_lead, 'lastSendAt': last_send,
         'online': age is not None and age < 15, 'lastSeen': last, 'host': burst.get('host') or alive.get('host'),
         'building': [b if isinstance(b, str) else (b.get('name') or b.get('slug') or '') for b in (burst.get('building') or [])],
         'workers': burst.get('workers'),

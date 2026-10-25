@@ -185,21 +185,20 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       roll($('lf-new'), lf.leadsToday);
       const tr = lf.tracker || {};
       const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
-      const stuck = tr.queuePaused || tr.buildPaused;
+      // Only real trouble shows: the Mac gone quiet, out of Claude, or a finder
+      // that's paused with nothing moving (the server decides "stuck").
+      const stuck = tr.stuck;
+      const ago = (iso) => { if (!iso) return ''; const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : hhmm(iso); };
       const now = !tr.online ? `Mac offline since ${hhmm(tr.lastSeen)}`
         : tr.claudeLimited ? `Out of Claude usage${tr.claudeResets ? ` until ${hhmm(tr.claudeResets)}` : ''}`
         : stuck ? `Stuck: ${stuck.replace(/^The finder /, 'the finder ')}`
-        : tr.building && tr.building.length ? `Building ${tr.building.length === 1 ? 'a website for ' + tr.building[0] : tr.building.length + ' websites: ' + tr.building.slice(0, 2).join(', ')}`
-        : tr.finder ? tr.finder.charAt(0).toUpperCase() + tr.finder.slice(1) : 'Running';
+        : `Finding leads: the last one ${ago(tr.lastLeadAt)}`;
       $('lf-now').textContent = now;
       $('lf-tracker').className = 'tracker' + (!tr.online ? ' down' : stuck || tr.claudeLimited ? ' stuck' : '');
-      $('lf-wa-line').textContent = !tr.waOn ? 'WhatsApp sender is off'
-        : `WhatsApp: ${tr.waSentToday} sent today${tr.waFailedToday ? `, ${tr.waFailedToday} failed` : ''}${tr.waNext ? `, next at ${hhmm(tr.waNext.at)}${tr.waNext.name ? ' to ' + tr.waNext.name : ''}` : ', done for today'}`;
+      $('lf-wa-line').textContent = `WhatsApp: ${num(lf.whatsappToday)} sent today${tr.lastSendAt ? ', the last ' + ago(tr.lastSendAt) : ''}`;
       const lm = lf.lastMessage;
       $('lf-last').innerHTML = lm ? `<div class="lf-last-head"><b>Last WhatsApp</b> to ${esc(lm.to)}<span>${esc(lm.from)}, ${new Date(lm.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span></div><div class="lf-last-text">${esc(lm.text).replace(/\n/g, '<br>')}</div>` : '';
-      $('lf-projects').innerHTML = (lf.projects || []).map((p) => `<div><span>${esc(p.name)}</span><b>${num(p.leads)}</b><i>${num(p.contacted)} contacted</i><i>${p.today ? '+' + num(p.today) + ' today' : ''}</i></div>`).join('');
       roll($('lf-replies'), lf.repliesToday);
-      roll($('lf-built'), lf.builtToday);
       roll($('lf-total'), lf.leads);
       // WhatsApps per day, this week
       const week = lf.week || [];
@@ -288,11 +287,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const scale = (H - SLOT * 2 - GAP * 2) / Math.max(1, sent);
     // Columns spread over the width; with only one or two stages, they stay a readable distance apart.
     const step = cols.length > 1 ? Math.min((W - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
+    // Centred across the panel.
+    const ox = Math.max(0, Math.round((W - ((cols.length - 1) * step + NODE + LABEL)) / 2));
     cols.forEach((ids, c) => {
       let y = 0;
       ids.forEach((id) => {
         const nd = nodes[id];
-        nd.x = Math.round(c * step); nd.h = Math.max(3, nd.n * scale);
+        nd.x = ox + Math.round(c * step); nd.h = Math.max(3, nd.n * scale);
         nd.y = y; nd.out = y; nd.in = y;
         y += Math.max(nd.h, SLOT) + GAP;
       });
@@ -316,7 +317,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     }
     box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${paths}</svg><div class="sk-labels">${text}</div>`;
     $('replies').innerHTML = pl.replies.length
-      ? pl.replies.slice(0, 4).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.interested ? '<i class="hot">interested</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
+      ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.interested ? '<i class="hot">interested</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
       : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
 

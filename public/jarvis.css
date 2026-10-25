@@ -514,3 +514,6 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 
 /* The octopus stays out of the way while WhatsApp is up. */
 #wa-layer.on ~ #spider { visibility: hidden; }
+
+/* The pipeline: two replies, the diagram gets the room. */
+#p-pipe .replies { max-height: 120px; }

@@ -187,9 +187,9 @@ function runJson(cmd, args, opts = {}) {
 
 const LEAD_EVENTS = {
   reply: ['win', 'CLIENT REPLIED', true],
-  built: ['win', 'DEMO BUILT', false],
-  emailed: ['win', 'SITE SENT', true],
-  whatsapp: ['win', 'SITE SENT', true],
+  built: ['info'],
+  emailed: ['info'],
+  whatsapp: ['info'],
   call: ['info'], run: ['info'], lead: ['info'],
   run_failed: ['error'],
 };
