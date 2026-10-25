@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import crypto from 'node:crypto';
+import { readFlowdesk, readInnolink, flowdeskHeaders as sharedFlowdeskHeaders, rest } from './lib/sources.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -307,97 +308,20 @@ function tokenRows() {
 
 // --- Supabase (FlowDesk and Innolink)
 
-let flowdeskToken = null;
-async function flowdeskHeaders() {
-  if (FLOWDESK.service) return { apikey: FLOWDESK.service, Authorization: `Bearer ${FLOWDESK.service}` };
-  if (!flowdeskToken || flowdeskToken.expires < Date.now() + 60_000) {
-    const res = await fetch(`${FLOWDESK.url}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: { apikey: FLOWDESK.anon, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: FLOWDESK.email, password: FLOWDESK.password }),
-    });
-    if (!res.ok) throw new Error(`FlowDesk login ${res.status}`);
-    const j = await res.json();
-    flowdeskToken = { value: j.access_token, expires: Date.now() + j.expires_in * 1000 };
-  }
-  return { apikey: FLOWDESK.anon, Authorization: `Bearer ${flowdeskToken.value}` };
-}
+// Reading FlowDesk and Innolink is in lib/sources.mjs, shared with the live site.
+const flowdeskHeaders = () => sharedFlowdeskHeaders(FLOWDESK);
 
-async function rest(base, pathAndQuery, headers) {
-  const res = await fetch(`${base}/rest/v1/${pathAndQuery}`, { headers, signal: AbortSignal.timeout(30000) });
-  if (!res.ok) throw new Error(`${pathAndQuery.split('?')[0]} ${res.status}`);
-  return res.json();
-}
-
-// FlowDesk keeps work in two places: tasks (started and finished in
-// activity_logs, done in completion_logs) and project to-dos (ticked off with
-// completed_by). What someone is doing NOW is a task they started today and
-// haven't finished; nobody with one shows red on the TV. FlowDesk's own
-// notifications (starts, completions, reopens, workload alerts, chat) are the
-// feed for the live log.
+// FlowDesk's numbers come from lib/sources.mjs; here its notifications, new
+// to-dos, ticked-off to-dos and logged work become live-log lines.
 let flowdeskFirst = true;
 async function refreshFlowdesk() {
   const configured = Boolean(FLOWDESK.url && (FLOWDESK.service || (FLOWDESK.anon && FLOWDESK.email && FLOWDESK.password)));
   if (!configured) { state.flowdesk = { ok: false, configured: false }; return; }
   try {
-    const h = await flowdeskHeaders();
-    const now = new Date();
-    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString();
-    const dayAgo = new Date(Date.now() - 864e5).toISOString();
-    const today = localDate(now);
-    const q = encodeURIComponent;
-    const [users, done, todos, acts, tasks, notes, todoNew, worklog] = await Promise.all([
-      rest(FLOWDESK.url, 'users?select=id,name,avatar_initials,job_title,role,is_active&is_active=eq.true&order=name', h),
-      rest(FLOWDESK.url, `completion_logs?select=id,employee_id,task_id,due_date,completed_at,tasks(title)&completed_at=gte.${q(weekAgo)}&order=completed_at.desc`, h),
-      rest(FLOWDESK.url, `project_todos?select=id,title,completed_at,completed_by&completed_at=gte.${q(weekAgo)}&order=completed_at.desc`, h),
-      rest(FLOWDESK.url, `activity_logs?select=id,action,timestamp,actor_id,task_id,tasks(title)&timestamp=gte.${q(midnight)}&order=timestamp.asc`, h),
-      rest(FLOWDESK.url, 'tasks?select=id,title,frequency,task_assignments(employee_id)&is_active=eq.true', h),
-      rest(FLOWDESK.url, `notifications?select=id,type,title,message,created_at,subject_user_id&created_at=gte.${q(dayAgo)}&type=neq.task_overdue&order=created_at.asc`, h),
-      rest(FLOWDESK.url, `project_todos?select=id,title,created_at,created_by,assignee_id&created_at=gte.${q(dayAgo)}&order=created_at.asc`, h),
-      rest(FLOWDESK.url, `work_log_entries?select=id,author_id,title,minutes,created_at&created_at=gte.${q(dayAgo)}&order=created_at.asc`, h),
-    ]);
-    // The admin to-do list: FlowDesk's shared "To do" list (no owner), not anyone's own list.
-    const lists = await rest(FLOWDESK.url, 'project_todo_lists?select=id,name,owner_id,created_at&order=created_at.asc', h);
-    const adminList = lists.find(l => !l.owner_id && /to ?do/i.test(l.name || '')) || lists.find(l => !l.owner_id);
-    const listTodos = adminList ? await rest(FLOWDESK.url, `project_todos?select=id,title,is_completed,completed_at,assignee_id,do_date,is_urgent,sort_order&list_id=eq.${adminList.id}&order=sort_order.asc`, h) : [];
+    const { flowdesk, raw } = await readFlowdesk(FLOWDESK);
+    const { users, notes, todoNew, todos, worklog, dayAgo, today, hour } = raw;
     const names = Object.fromEntries(users.map(u => [u.id, u.name.split(' ')[0]]));
     const who = id => names[id] || 'Someone';
-
-    // Doing now: started today, not finished since (per person, newest first).
-    const open = {};
-    for (const a of acts) {
-      const mine = open[a.actor_id] || (open[a.actor_id] = new Map());
-      if (a.action === 'in_progress') mine.set(a.task_id, { title: a.tasks?.title || 'a task', since: a.timestamp });
-      else if (a.action === 'completed' || a.action === 'missed') mine.delete(a.task_id);
-    }
-    // Due today: one-off tasks dated today, and monthly ones that fall today.
-    const isToday = f => f?.type === 'one-off' ? f.date === today
-      : f?.type === 'monthly' ? now.getDay() === f.dayOfWeek && Math.ceil(now.getDate() / 7) === f.weekOfMonth : false;
-    const doneToday = new Set(done.filter(c => c.due_date === today).map(c => `${c.task_id}|${c.employee_id}`));
-
-    const finishedItems = [
-      ...done.map(c => ({ who: c.employee_id, at: c.completed_at, title: c.tasks?.title || 'a task' })),
-      ...todos.filter(t => t.completed_by).map(t => ({ who: t.completed_by, at: t.completed_at, title: t.title })),
-    ].sort((a, b) => (a.at < b.at ? 1 : -1));
-
-    const staff = users.filter(u => u.role === 'employee');
-    const people = (staff.length ? staff : users).map(u => {
-      const mine = finishedItems.filter(f => f.who === u.id);
-      const mineTasks = tasks.filter(t => (t.task_assignments || []).some(a => a.employee_id === u.id));
-      const working = [...(open[u.id] || new Map()).values()].sort((a, b) => (a.since < b.since ? 1 : -1));
-      return {
-        name: u.name, initials: u.avatar_initials, title: u.job_title,
-        done: mine.filter(f => f.at >= midnight).length, week: mine.length,
-        working: working.map(w => w.title), since: working[0]?.since || null,
-        // Today, as FlowDesk shows it: what is due today and not yet done.
-        dueToday: mineTasks.filter(t => isToday(t.frequency) && !doneToday.has(`${t.id}|${u.id}`)).map(t => t.title),
-        dueTotal: mineTasks.filter(t => isToday(t.frequency)).length,
-        lastDone: mine[0]?.title || null,
-      };
-    }).sort((a, b) => b.working.length - a.working.length || b.done - a.done || a.name.localeCompare(b.name));
-
-    // The live log: FlowDesk's notifications, new to-dos and work logged.
     const history = flowdeskFirst || undefined;
     const NOTE = {
       task_started: (n) => ['info', `${who(n.subject_user_id)} started "${n.message}"`],
@@ -420,25 +344,10 @@ async function refreshFlowdesk() {
     for (const t of todoNew) log('info', 'flowdesk', `${who(t.created_by)} added a to-do: "${t.title}"${t.assignee_id && t.assignee_id !== t.created_by ? ` for ${who(t.assignee_id)}` : ''}`, { key: 'fdt:' + t.id, at: t.created_at, panel: 'team', history });
     for (const t of todos.filter(x => x.completed_by && x.completed_at >= dayAgo)) log(history ? 'info' : 'win', 'flowdesk', `${who(t.completed_by)} ticked off "${t.title}"`, { key: 'fdd:' + t.id, at: t.completed_at, panel: 'team', title: 'TASK DONE', history });
     for (const w of worklog) log('info', 'flowdesk', `${who(w.author_id)} logged work: "${w.title}"${w.minutes ? ` (${w.minutes} min)` : ''}`, { key: 'fdw:' + w.id, at: w.created_at, panel: 'team', history });
-    for (const p of people) p.status = p.working.length ? 'working' : p.dueToday.length ? 'todo' : 'clear';
     // Someone with work due today and nothing started: flag it once a day, in working hours.
-    const hour = now.getHours();
-    if (hour >= 9 && hour < 18) for (const p of people) if (p.status === 'todo') log('warn', 'flowdesk', `${p.name.split(' ')[0]} has "${p.dueToday[0]}" due today and nothing started`, { key: `idle:${today}:${p.name}`, panel: 'team' });
+    if (hour >= 9 && hour < 18) for (const p of flowdesk.people) if (p.status === 'todo') log('warn', 'flowdesk', `${p.name.split(' ')[0]} has "${p.dueToday[0]}" due today and nothing started`, { key: `idle:${today}:${p.name}`, panel: 'team' });
     flowdeskFirst = false;
-
-    const firstName = (id) => (users.find(u => u.id === id)?.name || '').split(' ')[0];
-    const todo = {
-      name: adminList?.name || 'To do',
-      // Who it is for, unless it is the admin (it's the admin's list anyway).
-      open: listTodos.filter(t => !t.is_completed).map(t => ({ title: t.title, who: t.assignee_id && users.find(u => u.id === t.assignee_id)?.role !== 'admin' ? firstName(t.assignee_id) : '', doDate: t.do_date, urgent: !!t.is_urgent })),
-      doneToday: listTodos.filter(t => t.is_completed && t.completed_at >= midnight).length,
-    };
-    state.flowdesk = {
-      ok: true, configured: true, people, todo,
-      doneToday: finishedItems.filter(f => f.at >= midnight).length, doneWeek: finishedItems.length,
-      inProgress: people.reduce((sum, p) => sum + p.working.length, 0),
-      idle: people.filter(p => p.status === 'todo').length,
-    };
+    state.flowdesk = flowdesk;
     sourceOk('flowdesk');
   } catch (err) {
     state.flowdesk = { ...state.flowdesk, ok: false, configured: true };
@@ -449,16 +358,8 @@ async function refreshFlowdesk() {
 async function refreshInnolink() {
   if (!INNOLINK.service) { state.innolink = { ok: false, configured: false }; return; }
   try {
-    const h = { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}` };
-    const rows = await rest(INNOLINK.url, 'clients?select=slug,name,views,credit_clicks,published,links(clicks,enabled)&order=views.desc', h);
-    const clients = rows.map(c => ({
-      slug: c.slug, name: c.name, published: c.published,
-      views: c.views, credit: c.credit_clicks,
-      clicks: (c.links || []).reduce((s, l) => s + (l.clicks || 0), 0),
-      links: (c.links || []).filter(l => l.enabled).length,
-    }));
-    const views = clients.reduce((s, c) => s + c.views, 0);
-    const clicks = clients.reduce((s, c) => s + c.clicks, 0);
+    const next = await readInnolink(INNOLINK);
+    const { clients, views } = next;
     const prev = state.innolink;
     if (prev.ok) {
       const before = Object.fromEntries(prev.clients.map(c => [c.slug, c]));
@@ -471,7 +372,7 @@ async function refreshInnolink() {
       const step = 100;
       if (Math.floor(views / step) > Math.floor(prev.views / step)) log('win', 'innolink', `Innolink pages passed ${fmt(Math.floor(views / step) * step)} opens`, { panel: 'link', big: true, title: `${fmt(Math.floor(views / step) * step)} OPENS` });
     }
-    state.innolink = { ok: true, configured: true, clients, views, clicks };
+    state.innolink = next;
     sourceOk('innolink');
   } catch (err) {
     state.innolink = { ...state.innolink, ok: false, configured: true };

@@ -6,6 +6,9 @@ lead finder's own connection settings, and prints one JSON object:
 
     <lead_finder>/.venv/Scripts/python.exe -I scripts/leadstats.py <lead_finder dir>
 
+The live site runs the same code (api/leads.py) with the database address from
+its own settings, through collect(url), when the Jarvis PC is off.
+
 Numbers: leads collected, demo sites built, websites sent (by email or
 WhatsApp), emails sent, meetings, and the latest service usage readings.
 Events: what happened in the last 24 hours (sites built, emails and WhatsApps
@@ -15,12 +18,12 @@ new ones from ones it has already shown.
 import json
 import sys
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-ROOT = sys.argv[1]
-sys.path.insert(0, ROOT)
+import psycopg
 
-from webapp import appdb  # noqa: E402  (the lead finder's own settings)
-import psycopg  # noqa: E402
+# "Today" is the office's calendar day, in UK time, wherever this runs.
+OFFICE = ZoneInfo('Europe/London')
 
 
 def setting(rows, key):
@@ -146,14 +149,11 @@ def week(rows):
     return [{'date': d, 'sent': sent.get(d, 0), 'whatsapps': wa.get(d, 0), 'leads': new.get(d, 0)} for d in days]
 
 
-def main():
-    url = appdb.database_url()
-    if not url:
-        print(json.dumps({'ok': False, 'error': 'the lead finder has no shared database set (SUPABASE_PASSWORD in its .env)'}))
-        return
+def collect(url):
+    """Everything Jarvis shows from the lead finder, as one dict."""
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    # "Today" is the calendar day on this PC, not the last 24 hours.
-    local = datetime.now().astimezone()
+    # "Today" is the calendar day in the office, not the last 24 hours.
+    local = datetime.now(OFFICE)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     # prepare_threshold=None: Supabase's pooler shares connections, so no prepared statements.
     with psycopg.connect(url, autocommit=True, connect_timeout=15, prepare_threshold=None) as c:
@@ -237,7 +237,18 @@ def main():
         for lead, name, project, at in rows("""SELECT l.id, l.name, p.name, l.created_at FROM leads l JOIN projects p ON p.id = l.project_id
                                                WHERE l.created_at >= %s""", since):
             ev.append({'id': f'lead:{lead}', 'at': at, 'kind': 'lead', 'text': f'New lead in {project}: {name}'})
-    print(json.dumps(out, default=str))
+    return out
+
+
+def main():
+    # On the PC: the lead finder's own connection settings.
+    sys.path.insert(0, sys.argv[1])
+    from webapp import appdb
+    url = appdb.database_url()
+    if not url:
+        print(json.dumps({'ok': False, 'error': 'the lead finder has no shared database set (SUPABASE_PASSWORD in its .env)'}))
+        return
+    print(json.dumps(collect(url), default=str))
 
 
 if __name__ == '__main__':

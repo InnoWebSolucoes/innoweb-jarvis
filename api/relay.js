@@ -4,6 +4,7 @@
 // passed on with RELAY_SECRET, which the PC requires.
 import crypto from 'node:crypto';
 import { authed } from './_auth.js';
+import { readInnolink, readFlowdesk } from '../lib/sources.mjs';
 
 let cached = { url: null, at: 0 };
 async function tunnel(fresh) {
@@ -24,6 +25,28 @@ async function lastSaved() {
   return JSON.parse(Buffer.concat([d.update(buf.subarray(12, buf.length - 16)), d.final()]).toString('utf8'));
 }
 
+// With the PC off, the figures still come live from where they're kept online:
+// Innolink and FlowDesk read here (lib/sources.mjs, the same code Jarvis runs),
+// the lead finder through api/leads.py. Each part that answers replaces the
+// saved one; one that doesn't keeps the saved figures. Cached for 20 seconds.
+let liveCache = { at: 0, parts: null };
+async function liveFigures(host) {
+  if (liveCache.parts && Date.now() - liveCache.at < 20000) return liveCache.parts;
+  const e = process.env;
+  const [innolink, flowdesk, leads] = await Promise.all([
+    e.INNOLINK_SERVICE_ROLE_KEY ? readInnolink({ url: e.INNOLINK_URL || 'https://wjmrwszorppurykmwmwt.supabase.co', service: e.INNOLINK_SERVICE_ROLE_KEY }).catch(() => null) : null,
+    e.FLOWDESK_URL ? readFlowdesk({ url: e.FLOWDESK_URL, anon: e.FLOWDESK_ANON_KEY, email: e.FLOWDESK_EMAIL, password: e.FLOWDESK_PASSWORD }).then(r => r.flowdesk).catch(() => null) : null,
+    e.LEAD_DB_URL ? fetch(`https://${host}/api/leads`, { headers: { 'x-jarvis-relay': e.RELAY_SECRET || '' }, signal: AbortSignal.timeout(25000) })
+      .then(r => r.json()).then(j => (j && j.ok ? { ...j, usage: undefined, spend: undefined, caps: undefined, demos: undefined, events: undefined } : null)).catch(() => null) : null,
+  ]);
+  const parts = {};
+  if (innolink) parts.innolink = innolink;
+  if (flowdesk) parts.flowdesk = flowdesk;
+  if (leads) parts.leads = leads;
+  liveCache = { at: Date.now(), parts };
+  return parts;
+}
+
 export default async function handler(req, res) {
   const q = { ...req.query };
   const p = String(q.p || '/'); delete q.p;
@@ -41,8 +64,13 @@ export default async function handler(req, res) {
   // The Jarvis PC is off or unreachable: the dashboard shows the last figures it saved.
   if (!r || (r.status >= 500 && !String(r.headers.get('content-type') || '').includes('json'))) {
     if (p === '/api/state') {
-      const saved = await lastSaved().catch(() => null);
-      if (saved) return res.status(200).json({ ...saved, stale: true });
+      const [saved, live] = await Promise.all([lastSaved().catch(() => null), liveFigures(req.headers.host).catch(() => ({}))]);
+      if (saved || Object.keys(live).length) {
+        const out = { ...(saved || {}), ...live, stale: true, live: Object.keys(live), liveAt: new Date().toISOString() };
+        // The sources that answered just now aren't "offline", whatever the saved state said.
+        out.failing = Object.fromEntries(Object.entries(out.failing || {}).filter(([k]) => !live[k]));
+        return res.status(200).json(out);
+      }
     }
     if (p === '/api/commands') return res.status(200).json({ last: 0, commands: [], live: null });
     return res.status(502).json({ error: 'The Jarvis computer in the office is not reachable' });

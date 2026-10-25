@@ -256,7 +256,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const h = S.sites && S.sites[site.url];
       if (h && !h.ok) down.push(`${site.name} is down`);
     }
-    if (S.stale && S.savedAt) down.unshift("the Jarvis computer is off, figures from " + new Date(S.savedAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }));
+    if (S.stale) down.unshift(S.live && S.live.length >= 3 ? "the Jarvis computer is off: voice and films are paused, the figures are live" : S.live && S.live.length ? "the Jarvis computer is off: " + S.live.join(", ") + " live, the rest from " + new Date(S.savedAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "the Jarvis computer is off, figures from " + new Date(S.savedAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }));
     showOffline(down);
     rotator.sync();
     if ($("wa-view").className.indexOf("show") >= 0) showWhatsApp(true);

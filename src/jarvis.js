@@ -253,7 +253,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const down = Object.keys(failing).map((k) => `${NAMES[k] || k} is offline`);
     for (const site of S.board && S.board.sites || []) { const h = S.sites && S.sites[site.url]; if (h && !h.ok) down.push(`${site.name} is down`); }
     // The Jarvis PC is off: these are the last figures it saved.
-    if (S.stale && S.savedAt) down.unshift('the Jarvis computer is off, figures from ' + new Date(S.savedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
+    if (S.stale) down.unshift(S.live && S.live.length >= 3 ? 'the Jarvis computer is off: voice and films are paused, the figures are live'
+      : S.live && S.live.length ? 'the Jarvis computer is off: ' + S.live.join(', ') + ' live, the rest from ' + new Date(S.savedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+      : 'the Jarvis computer is off, figures from ' + new Date(S.savedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
     showOffline(down);
 
     rotator.sync();
