@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/jarvis.css?v=91">
+<link rel="stylesheet" href="/jarvis.css?v=95">
 </head>
 <body>
 <div id="viewport">
@@ -49,27 +49,6 @@
   </section>
 
   <!-- Centre column -->
-  <section class="card panel bare" id="p-site" data-panel="site">
-    <div class="card-head"><h2>Our work</h2><span class="meta" id="site-count"></span></div>
-    <div class="desk" id="desk">
-      <div class="monitor" id="monitor">
-        <div class="screen" id="screen">
-          <div class="chrome">
-            <span class="lights"><i></i><i></i><i></i></span>
-            <span class="address"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span id="site-url"></span></span>
-          </div>
-          <div class="browser-view" id="site-view"></div>
-          <div class="wa-view" id="wa-view"><div class="wa-head"><b>WhatsApp</b><span id="wa-chat"></span></div><div class="wa-msgs" id="wa-msgs"></div><img id="wa-screen" alt=""></div>
-        </div>
-      </div>
-      <div class="neck"></div>
-      <div class="base"></div>
-      <div class="site-caption" id="site-caption">
-        <span class="dot" id="site-health"></span>
-        <span class="site-name" id="site-name"></span>
-      </div>
-    </div>
-  </section>
 
   <section class="card panel" id="p-pipe" data-panel="pipe">
     <div class="card-head"><h2>Pipeline</h2><span class="meta">every lead contacted</span></div>
@@ -87,6 +66,8 @@
       <div><b id="lf-new"></b><span>New leads</span></div>
     </div>
     <div class="lf-senders" id="lf-senders"></div>
+    <div class="lf-last" id="lf-last"></div>
+    <div class="lf-projects" id="lf-projects"></div>
     <div class="lf-small">
       <span><b id="lf-replies"></b> replies today</span>
       <span><b id="lf-built"></b> sites built today</span>
@@ -117,6 +98,7 @@
   </section>
 
   <div id="dim"></div>
+  <div id="wa-layer"><div class="wa-view" id="wa-view"><div class="wa-head"><b>WhatsApp</b><span id="wa-chat"></span></div><div class="wa-msgs" id="wa-msgs"></div><img id="wa-screen" alt=""></div></div>
   <canvas id="fx"></canvas>
   <div id="say"><div id="say-heard"></div><div id="say-reply"></div></div>
   <div id="spider" aria-hidden="true"></div>
@@ -139,6 +121,6 @@
     <linearGradient id="gSpark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6" stop-opacity="0.35"/><stop offset="1" stop-color="#3b82f6" stop-opacity="0"/></linearGradient>
   </defs>
 </svg>
-<script src="/jarvis.js?v=91"></script>
+<script src="/jarvis.js?v=95"></script>
 </body>
 </html>

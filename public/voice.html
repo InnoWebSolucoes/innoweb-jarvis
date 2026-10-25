@@ -90,7 +90,6 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  // On a phone the mic is right by your mouth: always listening takes everything, no "Jarvis" needed.
   const PHONE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   // What the mic heard and what went wrong goes to Jarvis's log, so problems can be seen from the PC.
   function report(msg) {
@@ -242,7 +241,7 @@
         // Always listening: act on what follows "Jarvis" (even when the final
         // words lost it), on the sentence after a lone "Jarvis", or on anything
         // said in the 20 seconds after she answered.
-        const woke = WAKE.test(t) || wakeInInterim || PHONE;
+        const woke = WAKE.test(t) || wakeInInterim;
         report('heard "' + t + '"' + (woke || Date.now() < followUntil || Date.now() - wokeAt < 10000 ? '' : ' (not sent: no Jarvis)'));
         wakeInInterim = false;
         const rest = t.replace(WAKE, ' ').trim();
@@ -285,8 +284,14 @@
   $('always').onchange = () => { store('jarvis-always', always() ? '1' : '0'); if (always()) restart(); else stop(); };
   // ?listen in the address turns "Always listening" on straight away.
   if (/[?&]listen/.test(location.search)) store('jarvis-always', '1');
-  if (PHONE) $('always-note').textContent = '(no need to say Jarvis)';
-  if (store('jarvis-always') === '1' && SR && window.isSecureContext) { $('always').checked = true; start(); }
+  // Always listening is the default: it hears everything but only acts on what
+  // follows "Jarvis" (and on the 20 seconds after she answers). Phones only
+  // allow the microphone after a tap, so the first tap anywhere starts it, and
+  // it keeps listening from then on.
+  if (store('jarvis-always') !== '0' && SR && window.isSecureContext) { $('always').checked = true; start(); }
+  const kick = () => { if (always() && SR && window.isSecureContext && !running && !speaking) { listening = true; $('mic').classList.add('on'); status('Listening for "Jarvis"'); listen(); } };
+  for (const type of ['click', 'touchend']) document.addEventListener(type, (e) => { if (e.target && e.target.id !== 'mic' && e.target.id !== 'always') kick(); }, true);
+  if (PHONE) setTimeout(() => { if (!running && always()) status('Tap anywhere once to start listening for "Jarvis"'); }, 1500);
 })();
 </script>
 </body>

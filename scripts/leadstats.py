@@ -136,7 +136,7 @@ def pipeline(rows):
     for name, key, value, at in latest:
         said = said_of(value)
         is_auto = 'autoreply' in key or any(k in said.lower() for k in AUTO_REPLY)
-        replies.append({'name': name, 'said': said[:160], 'at': at, 'auto': is_auto, 'interested': '(interested)' in str(value)[:40]})
+        replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto, 'interested': '(interested)' in str(value)[:40]})
     return {'sent': sent, 'replied': replied, 'autoReplied': auto, 'answered': answered, 'followUp': follow, 'won': won, 'saidNo': said_no, 'replies': replies}
 
 
@@ -251,6 +251,25 @@ def collect(url):
         out['pipeline'] = pipeline(rows)
         out['week'] = week(rows)
         out['senders'] = senders(rows, setting(rows, 'wa_senders'), midnight)
+        # The last WhatsApp that went out, word for word, and who it went to.
+        last = rows("""SELECT l.name, p.name, s.value, s.updated_at, m.value
+                        FROM lead_values s JOIN leads l ON l.id = s.lead_id JOIN projects p ON p.id = l.project_id
+                        LEFT JOIN lead_values m ON m.lead_id = s.lead_id AND m.key = 'whatsapp_message'
+                        WHERE s.key = 'whatsapp_status' AND s.value LIKE 'sent %%' AND p.archived_at IS NULL
+                        ORDER BY s.updated_at DESC LIMIT 1""")
+        if last:
+            name, project, status, at, text = last[0]
+            sender = (status.split(' from ', 1)[1] if ' from ' in status else '').split(' (')[0]
+            out['lastMessage'] = {'to': name, 'project': project, 'from': sender, 'at': at, 'text': text or ''}
+        # Each active project: leads, contacted, new today.
+        out['projects'] = [{'name': n, 'leads': total, 'contacted': contacted, 'today': today} for n, total, contacted, today in rows(f"""
+            SELECT p.name, count(l.id),
+              count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_values v WHERE v.lead_id = l.id AND
+                ((v.key = 'whatsapp_status' AND v.value LIKE 'sent %%') OR (v.key = 'call_result' AND v.value IN ('Emailed', 'Messaged'))
+                 OR (v.key = 'uk_status' AND v.value = 'sent') OR (v.key = 'instagram_status' AND v.value LIKE 'sent %%')))),
+              count(l.id) FILTER (WHERE l.created_at >= %s)
+            FROM projects p LEFT JOIN leads l ON l.project_id = p.id
+            WHERE p.archived_at IS NULL GROUP BY p.id, p.name, p.sort ORDER BY p.sort""", midnight)]
         # Every demo site the finder has built and put live, newest first.
         out['demos'] = [{'name': n, 'url': u} for u, n in rows("""SELECT b.live_url, l.name FROM builds b JOIN leads l ON l.id = b.lead_id
                          WHERE b.status = 'built' AND coalesce(b.live_url, '') <> '' ORDER BY b.finished_at DESC""")]

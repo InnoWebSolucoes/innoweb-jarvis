@@ -2,7 +2,8 @@
 with a QR code. It keeps the Innoweb group open so new messages can be
 announced, and when the TV is showing WhatsApp it sends pictures of the whole
 WhatsApp screen and moves around when asked: open a chat, scroll, go back to
-the chat list. It only looks: it never writes in a chat.
+the chat list, and send a message (the server only asks for that after the
+message has been read out and someone said yes).
 
     python -u scripts/whatsapp_bridge.py <profile dir> <group name>
 
@@ -23,6 +24,9 @@ and takes one command per line on stdin:
   {"id": ..., "cmd": "open_index", "index": n} open the n-th chat on screen (0 = the top one)
   {"id": ..., "cmd": "scroll", "dir": "up|down", "where": "chat|list"}
   {"id": ..., "cmd": "list"}                   close the open chat (back to the chat list)
+  {"id": ..., "cmd": "send", "name": ..., "text": ...}
+                                               send the text in that chat (no name: the open chat)
+and also writes {"type": "open", "name": ...} when the open chat changes.
 """
 import base64
 import difflib
@@ -42,6 +46,7 @@ UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 QR = "div[data-ref] canvas, canvas[aria-label*='Scan']"
 CHATS = "#pane-side, div[aria-label='Chat list'], div[aria-label='Chats']"
 SEARCH = "#side div[contenteditable='true'], div[contenteditable='true'][data-tab='3']"
+COMPOSE = "#main footer div[contenteditable='true']"
 PROFILE, GROUP = sys.argv[1], sys.argv[2]
 
 # Each message row carries "[10:47, 23/10/2026] Name: " in data-pre-plain-text.
@@ -187,6 +192,30 @@ def scroll(page, direction, where):
     return page.evaluate(SCROLL, [where, -600 if direction == 'up' else 600])
 
 
+def send(page, name, text):
+    """Send text in the named chat (or the open one), and check it went out."""
+    text = ' '.join(str(text or '').split())
+    if not text:
+        return False, 'nothing to send'
+    if name:
+        title = open_chat(page, name)
+        if not title:
+            return False, f'no chat called "{name}"'
+    elif not page.locator('#main').count():
+        return False, 'no chat is open'
+    title = clean(page.evaluate(OPEN_CHAT))
+    box = page.locator(COMPOSE).first
+    box.click()
+    page.keyboard.type(text, delay=8)
+    page.keyboard.press('Enter')
+    for _ in range(20):
+        time.sleep(0.25)
+        msgs = page.evaluate(READ)
+        if msgs and msgs[-1]['mine'] and msgs[-1]['text'].strip()[:30] == text[:30]:
+            return True, title
+    return True, title  # typed and sent; WhatsApp may still be showing the clock
+
+
 def run_command(page, c, watch):
     kind = c.get('cmd')
     if kind == 'watch':
@@ -203,6 +232,8 @@ def run_command(page, c, watch):
     if kind == 'list':
         page.keyboard.press('Escape')
         return True, ''
+    if kind == 'send':
+        return send(page, c.get('name') or '', c.get('text') or '')
     return False, f'unknown command {kind}'
 
 
@@ -216,7 +247,7 @@ def main():
         page.goto(WEB, wait_until='domcontentloaded', timeout=60000)
         state, last_qr, group, last_msgs = None, None, None, None
         watch = {'on': False, 'shot': 0, 'last': None, 'until': 0}
-        last_read, last_names, crawled = 0, None, 0
+        last_read, last_names, crawled, last_open = 0, None, 0, None
         while True:
             try:
                 qr = page.locator(QR)
@@ -261,6 +292,9 @@ def main():
                     emit({'type': 'chats', 'names': names})
 
                 current = clean(page.evaluate(OPEN_CHAT)) if page.locator('#main').count() else ''
+                if current != last_open:
+                    last_open = current
+                    emit({'type': 'open', 'name': current})
                 # When nobody is looking, go back to the group so its messages are followed.
                 if not watch['on'] and time.time() > watch['until'] and (not group or current != group):
                     group = open_chat(page, GROUP)

@@ -55,19 +55,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       stage.style.transform = t;
     }
     fx.resize();
-    fitMonitor();
-  }
-
-  // The monitor in "Our work": a 16:9 screen as large as the panel allows,
-  // leaving room for its stand and the caption under it.
-  function fitMonitor() {
-    const desk = $('desk'), cap = $('site-caption');
-    if (!desk.clientWidth) return;
-    const bezel = 18, under = 20 + 7 + 12 + 26;
-    const w = Math.floor(stacked ? desk.clientWidth - bezel : Math.min(desk.clientWidth - bezel, ((desk.clientHeight - bezel - under) * 16) / 9));
-    $('screen').style.width = w + 'px';
-    $('screen').style.height = Math.round((w * 9) / 16) + 'px';
-    cap.style.width = (w + bezel) + 'px';
   }
 
   // ------------------------------------------------------------ clock + countdown
@@ -208,6 +195,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       $('lf-tracker').className = 'tracker' + (!tr.online ? ' down' : stuck || tr.claudeLimited ? ' stuck' : '');
       $('lf-wa-line').textContent = !tr.waOn ? 'WhatsApp sender is off'
         : `WhatsApp: ${tr.waSentToday} sent today${tr.waFailedToday ? `, ${tr.waFailedToday} failed` : ''}${tr.waNext ? `, next at ${hhmm(tr.waNext.at)}${tr.waNext.name ? ' to ' + tr.waNext.name : ''}` : ', done for today'}`;
+      const lm = lf.lastMessage;
+      $('lf-last').innerHTML = lm ? `<div class="lf-last-head"><b>Last WhatsApp</b> to ${esc(lm.to)}<span>${esc(lm.from)}, ${new Date(lm.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span></div><div class="lf-last-text">${esc(lm.text).replace(/\n/g, '<br>')}</div>` : '';
+      $('lf-projects').innerHTML = (lf.projects || []).map((p) => `<div><span>${esc(p.name)}</span><b>${num(p.leads)}</b><i>${num(p.contacted)} contacted</i><i>${p.today ? '+' + num(p.today) + ' today' : ''}</i></div>`).join('');
       roll($('lf-replies'), lf.repliesToday);
       roll($('lf-built'), lf.builtToday);
       roll($('lf-total'), lf.leads);
@@ -224,9 +214,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       if (pl) {
         const stages = [['Contacted', pl.sent], ['They replied', pl.replied], ['We answered', pl.answered], ['Follow-up', pl.followUp], ['Won', pl.won]];
         drawPipeline(pl);
-        $('replies').innerHTML = pl.replies.length
-          ? pl.replies.slice(0, 2).map((r) => `<div><b>${esc(r.name)}</b> ${esc(r.said)}</div>`).join('')
-          : '<div>No WhatsApp replies yet</div>';
       }
     } else {
       $('lf-now').textContent = lf.error ? `Not connected: ${lf.error}` : 'Connecting to the lead finder';
@@ -300,7 +287,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       .map((ids) => ids.filter((id) => id === 'sent' || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H - SLOT * 2 - GAP * 2) / Math.max(1, sent);
     // Columns spread over the width; with only one or two stages, they stay a readable distance apart.
-    const step = cols.length > 1 ? Math.min((W - NODE - LABEL - 20) / (cols.length - 1), 190) : 0;
+    const step = cols.length > 1 ? Math.min((W - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     cols.forEach((ids, c) => {
       let y = 0;
       ids.forEach((id) => {
@@ -329,7 +316,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     }
     box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${paths}</svg><div class="sk-labels">${text}</div>`;
     $('replies').innerHTML = pl.replies.length
-      ? pl.replies.slice(0, 1).map((r) => `<div class="rp"><b>${esc(r.name)}</b>${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
+      ? pl.replies.slice(0, 4).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.interested ? '<i class="hot">interested</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
       : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
 
@@ -384,94 +371,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   // scrolling (made on the PC; the TV's browser can't run modern sites itself).
   // Two players take turns: while one plays, the next film loads in the other,
   // so each switch is instant. A site with no film yet shows its picture.
-  const rotator = (() => {
-    const view = $('site-view');
-    const players = [0, 1].map(() => {
-      const v = document.createElement('video');
-      v.muted = true; v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.preload = 'auto';
-      view.appendChild(v);
-      return v;
-    });
-    const pic = new Image(); pic.alt = ''; view.appendChild(pic);
-    // TV browsers draw <video> as black; on those the film comes as a stream of
-    // pictures from the server instead (any browser shows a picture).
-    const STREAM = /Tizen|SMART-TV|Web0S|NetCast/i.test(navigator.userAgent) || /[?&]stream/.test(location.search);
-    const reel = new Image(); reel.alt = ''; view.appendChild(reel);
-    reel.onerror = () => report('picture stream failed for ' + reel.getAttribute('src'));
-    players.forEach((v) => { v.onerror = () => report('video error ' + (v.error && v.error.code) + ' for ' + v.getAttribute('src')); });
-    const wait = document.createElement('div');
-    wait.className = 'browser-wait';
-    wait.textContent = 'Filming our sites';
-    view.appendChild(wait);
-    let list = [], index = -1, front = 0, timer = null, holdUntil = 0;
-
-    const playable = () => list.filter((d) => d.film || (S && S.shots && S.shots[d.url]));
-    function label(d) {
-      const h = S && S.sites && S.sites[d.url];
-      $('site-name').textContent = d.name;
-      $('site-url').textContent = d.url.replace(/^https?:\/\//, '');
-      $('site-health').className = 'dot ' + (h ? (h.ok ? 'ok' : 'bad') : 'ok');
-      $('site-count').textContent = `${index + 1} of ${playable().length}`;
-    }
-    function picOf(d) {
-      const shot = S && S.shots && S.shots[d.url];
-      return shot ? (typeof shot === 'string' ? shot : shot.small || shot.full) : null;
-    }
-    // Load a film into the player that is not showing.
-    function prime(d) {
-      const back = players[1 - front];
-      if (d && d.film && back.getAttribute('src') !== d.film) { back.setAttribute('src', d.film); back.load(); }
-    }
-    function go(i) {
-      const all = playable();
-      if (!all.length) return;
-      clearTimeout(timer);
-      index = ((i % all.length) + all.length) % all.length;
-      const d = all[index];
-      wait.style.display = 'none';
-      label(d);
-      if (d.film) {
-        if (STREAM) {
-          const slug = (d.film.match(/\/demos\/([a-z0-9-]+)\./) || [])[1];
-          reel.src = '/film-stream/' + slug + '?t=' + Date.now();
-          reel.className = 'show'; pic.className = ''; players[0].className = players[1].className = '';
-          timer = setTimeout(() => go(index + 1), 11000);
-          return;
-        }
-        const v = players[1 - front];
-        if (v.getAttribute('src') !== d.film) { v.setAttribute('src', d.film); v.load(); }
-        v.currentTime = 0;
-        const p = v.play();
-        if (p && p.catch) p.catch(() => {});
-        v.className = 'show'; players[front].className = ''; pic.className = '';
-        players[front].pause();
-        front = 1 - front;
-        v.onended = () => { if (holdUntil <= Date.now()) go(index + 1); else { v.currentTime = 0; v.play(); } };
-        timer = setTimeout(() => go(index + 1), 16000);   // a film that stalls doesn't stop the show
-      } else {
-        pic.src = picOf(d); pic.className = 'show'; reel.className = '';
-        players[0].className = players[1].className = '';
-        players[front].pause();
-        timer = setTimeout(() => go(index + 1), 6000);
-      }
-      prime(all[(index + 1) % all.length]);
-    }
-    return {
-      current: () => playable()[index],
-      next() { holdUntil = 0; go(index + 1); },
-      previous() { holdUntil = 0; go(index - 1); },
-      // Show one site and stay on it for a while ("pull up Okulya").
-      show(url) {
-        const i = playable().findIndex((d) => d.url.replace(/\/$/, '') === String(url).replace(/\/$/, ''));
-        if (i >= 0) { holdUntil = Date.now() + 30000; go(i); }
-      },
-      sync() {
-        list = (S && S.demos) || [];
-        if (index === -1 && playable().length) go(0);
-        else if (index >= 0) $('site-count').textContent = `${index + 1} of ${playable().length}`;
-      },
-    };
-  })();
+  // The website reel is gone; what used to talk to it does nothing now.
+  const rotator = { current: () => null, next() {}, previous() {}, show() {}, sync() {}, pause() {}, resume() {} };
 
   // "Give me a summary": each panel full screen in turn while Jarvis talks, then back.
   let touring = null;
@@ -503,10 +404,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   function showWhatsApp(on) {
     const el = $('wa-view');
     el.className = on ? 'wa-view show' : 'wa-view';
+    $('wa-layer').className = on ? 'on' : '';
     clearInterval(waTimer);
-    if (!on) { const d = rotator.current(); if (d) $('site-name').textContent = d.name; if (zoomed === 'site') unzoom(); return; }
-    if (zoomed !== 'site') zoom('site', 600);
-    $('site-name').textContent = 'WhatsApp';
+    if (!on) { $('dim').classList.remove('on'); return; }
+    unzoom();
+    $('dim').classList.add('on');
     waTimer = setInterval(waFrame, 350);
     waFrame();
     const wa = S && S.whatsapp;
@@ -654,6 +556,12 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     };
   })();
 
+  // The octopus never leaves the screen: its head reaches about 75px above its
+  // middle and its arms about 80px below and 65px to each side.
+  function keepIn(x, y) {
+    return { x: Math.max(80, Math.min(SW - 80, x)), y: Math.max(88, Math.min(H - 88, y)) };
+  }
+
   // ------------------------------------------------------------ the octopus
   // A soft yellow plush octopus: a tall dome head with a seam across it, two
   // small round eyes, and eight thick arms with cream undersides that taper and
@@ -775,7 +683,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const sx = 1 + (s.moving ? 0.1 : 0.04) * pulse, sy = 1 - (s.moving ? 0.09 : 0.035) * pulse;
       const tilt = s.frantic ? Math.max(-45, Math.min(45, s.vx * 0.03)) : Math.max(-16, Math.min(16, s.vx * 0.05));
       const jx = s.shake ? rand(-s.shake, s.shake) : 0, jy = s.shake ? rand(-s.shake, s.shake) : 0;
-      const tr = `translate(${(s.x + jx).toFixed(1)}px, ${(s.y - s.hop + jy).toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
+      const at = keepIn(s.x + jx, s.y - s.hop + jy);
+      const tr = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
       el.style.webkitTransform = tr; el.style.transform = tr;
     }
     requestAnimationFrame(frame);
@@ -784,7 +693,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       state: s,
       el,
       walkTo(x, y, speed = 220, abort) {
-        return new Promise((done) => { s.target = { x, y, speed, abort, done }; });
+        const p = keepIn(x, y);
+        return new Promise((done) => { s.target = { x: p.x, y: p.y, speed, abort, done }; });
       },
       face() {},
       // One big backflip: up, a full turn backwards, and a squishy landing.
@@ -865,7 +775,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     switch (key) {
       case 'ach': return `${eur(a.revenue)} of ${eur(a.revenueGoal)}, ${S.flowdesk && S.flowdesk.todo ? S.flowdesk.todo.open.length + ' to do' : ''}`;
       case 'pipe': { const pl = S.leads && S.leads.pipeline; return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.won} won` : ''; }
-      case 'site': { const c = rotator.current(); const h = c && S.sites?.[c.url]; return c ? `${c.name} ${h ? (h.ok ? `answers in ${h.ms} ms` : 'is not answering') : 'online'}` : ''; }
       case 'meta': { const t = (S.tokens || []).filter((x) => x.used != null); return t.length ? t.map((x) => `${x.account} ${Math.round(x.used)}%`).join(', ') : 'Claude usage'; }
       case 'team': return S.flowdesk?.ok ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : 'FlowDesk not connected';
       case 'lead': return S.leads?.ok ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : '';

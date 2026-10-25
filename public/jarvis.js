@@ -88,16 +88,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       stage.style.transform = t;
     }
     fx.resize();
-    fitMonitor();
-  }
-  function fitMonitor() {
-    const desk = $("desk"), cap = $("site-caption");
-    if (!desk.clientWidth) return;
-    const bezel = 18, under = 20 + 7 + 12 + 26;
-    const w = Math.floor(stacked ? desk.clientWidth - bezel : Math.min(desk.clientWidth - bezel, (desk.clientHeight - bezel - under) * 16 / 9));
-    $("screen").style.width = w + "px";
-    $("screen").style.height = Math.round(w * 9 / 16) + "px";
-    cap.style.width = w + bezel + "px";
   }
   function tickClock() {
     var _a;
@@ -216,6 +206,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       $("lf-now").textContent = now;
       $("lf-tracker").className = "tracker" + (!tr.online ? " down" : stuck || tr.claudeLimited ? " stuck" : "");
       $("lf-wa-line").textContent = !tr.waOn ? "WhatsApp sender is off" : `WhatsApp: ${tr.waSentToday} sent today${tr.waFailedToday ? `, ${tr.waFailedToday} failed` : ""}${tr.waNext ? `, next at ${hhmm(tr.waNext.at)}${tr.waNext.name ? " to " + tr.waNext.name : ""}` : ", done for today"}`;
+      const lm = lf.lastMessage;
+      $("lf-last").innerHTML = lm ? `<div class="lf-last-head"><b>Last WhatsApp</b> to ${esc(lm.to)}<span>${esc(lm.from)}, ${new Date(lm.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span></div><div class="lf-last-text">${esc(lm.text).replace(/\n/g, "<br>")}</div>` : "";
+      $("lf-projects").innerHTML = (lf.projects || []).map((p) => `<div><span>${esc(p.name)}</span><b>${num(p.leads)}</b><i>${num(p.contacted)} contacted</i><i>${p.today ? "+" + num(p.today) + " today" : ""}</i></div>`).join("");
       roll($("lf-replies"), lf.repliesToday);
       roll($("lf-built"), lf.builtToday);
       roll($("lf-total"), lf.leads);
@@ -230,7 +223,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       if (pl) {
         const stages = [["Contacted", pl.sent], ["They replied", pl.replied], ["We answered", pl.answered], ["Follow-up", pl.followUp], ["Won", pl.won]];
         drawPipeline(pl);
-        $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div><b>${esc(r.name)}</b> ${esc(r.said)}</div>`).join("") : "<div>No WhatsApp replies yet</div>";
       }
     } else {
       $("lf-now").textContent = lf.error ? `Not connected: ${lf.error}` : "Connecting to the lead finder";
@@ -292,7 +284,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const links = [["sent", "replied"], ["sent", "auto"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
     const cols = [["sent"], ["replied", "auto", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
-    const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 20) / (cols.length - 1), 190) : 0;
+    const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     cols.forEach((ids, c) => {
       let y = 0;
       ids.forEach((id) => {
@@ -324,7 +316,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       text += `<div class="sk${nd.n ? "" : " none"}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
     }
     box.innerHTML = `<svg width="${W2}" height="${H2}" viewBox="0 0 ${W2} ${H2}">${paths}</svg><div class="sk-labels">${text}</div>`;
-    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 1).map((r) => `<div class="rp"><b>${esc(r.name)}</b>${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
+    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 4).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><b>${esc(r.name)}</b>${r.interested ? '<i class="hot">interested</i>' : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
   function compact(n) {
     if (n == null) return "\u2014";
@@ -372,127 +364,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (localLog.length > 40) localLog.shift();
     renderLog();
   }
-  const rotator = (() => {
-    const view = $("site-view");
-    const players = [0, 1].map(() => {
-      const v = document.createElement("video");
-      v.muted = true;
-      v.setAttribute("muted", "");
-      v.setAttribute("playsinline", "");
-      v.preload = "auto";
-      view.appendChild(v);
-      return v;
-    });
-    const pic = new Image();
-    pic.alt = "";
-    view.appendChild(pic);
-    const STREAM = /Tizen|SMART-TV|Web0S|NetCast/i.test(navigator.userAgent) || /[?&]stream/.test(location.search);
-    const reel = new Image();
-    reel.alt = "";
-    view.appendChild(reel);
-    reel.onerror = () => report("picture stream failed for " + reel.getAttribute("src"));
-    players.forEach((v) => {
-      v.onerror = () => report("video error " + (v.error && v.error.code) + " for " + v.getAttribute("src"));
-    });
-    const wait = document.createElement("div");
-    wait.className = "browser-wait";
-    wait.textContent = "Filming our sites";
-    view.appendChild(wait);
-    let list = [], index = -1, front = 0, timer = null, holdUntil = 0;
-    const playable = () => list.filter((d) => d.film || S && S.shots && S.shots[d.url]);
-    function label(d) {
-      const h = S && S.sites && S.sites[d.url];
-      $("site-name").textContent = d.name;
-      $("site-url").textContent = d.url.replace(/^https?:\/\//, "");
-      $("site-health").className = "dot " + (h ? h.ok ? "ok" : "bad" : "ok");
-      $("site-count").textContent = `${index + 1} of ${playable().length}`;
-    }
-    function picOf(d) {
-      const shot = S && S.shots && S.shots[d.url];
-      return shot ? typeof shot === "string" ? shot : shot.small || shot.full : null;
-    }
-    function prime(d) {
-      const back = players[1 - front];
-      if (d && d.film && back.getAttribute("src") !== d.film) {
-        back.setAttribute("src", d.film);
-        back.load();
-      }
-    }
-    function go(i) {
-      const all = playable();
-      if (!all.length) return;
-      clearTimeout(timer);
-      index = (i % all.length + all.length) % all.length;
-      const d = all[index];
-      wait.style.display = "none";
-      label(d);
-      if (d.film) {
-        if (STREAM) {
-          const slug = (d.film.match(/\/demos\/([a-z0-9-]+)\./) || [])[1];
-          reel.src = "/film-stream/" + slug + "?t=" + Date.now();
-          reel.className = "show";
-          pic.className = "";
-          players[0].className = players[1].className = "";
-          timer = setTimeout(() => go(index + 1), 11e3);
-          return;
-        }
-        const v = players[1 - front];
-        if (v.getAttribute("src") !== d.film) {
-          v.setAttribute("src", d.film);
-          v.load();
-        }
-        v.currentTime = 0;
-        const p = v.play();
-        if (p && p.catch) p.catch(() => {
-        });
-        v.className = "show";
-        players[front].className = "";
-        pic.className = "";
-        players[front].pause();
-        front = 1 - front;
-        v.onended = () => {
-          if (holdUntil <= Date.now()) go(index + 1);
-          else {
-            v.currentTime = 0;
-            v.play();
-          }
-        };
-        timer = setTimeout(() => go(index + 1), 16e3);
-      } else {
-        pic.src = picOf(d);
-        pic.className = "show";
-        reel.className = "";
-        players[0].className = players[1].className = "";
-        players[front].pause();
-        timer = setTimeout(() => go(index + 1), 6e3);
-      }
-      prime(all[(index + 1) % all.length]);
-    }
-    return {
-      current: () => playable()[index],
-      next() {
-        holdUntil = 0;
-        go(index + 1);
-      },
-      previous() {
-        holdUntil = 0;
-        go(index - 1);
-      },
-      // Show one site and stay on it for a while ("pull up Okulya").
-      show(url) {
-        const i = playable().findIndex((d) => d.url.replace(/\/$/, "") === String(url).replace(/\/$/, ""));
-        if (i >= 0) {
-          holdUntil = Date.now() + 3e4;
-          go(i);
-        }
-      },
-      sync() {
-        list = S && S.demos || [];
-        if (index === -1 && playable().length) go(0);
-        else if (index >= 0) $("site-count").textContent = `${index + 1} of ${playable().length}`;
-      }
-    };
-  })();
+  const rotator = { current: () => null, next() {
+  }, previous() {
+  }, show() {
+  }, sync() {
+  }, pause() {
+  }, resume() {
+  } };
   let touring = null;
   function tour() {
     clearTimeout(touring);
@@ -529,15 +407,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   function showWhatsApp(on) {
     const el = $("wa-view");
     el.className = on ? "wa-view show" : "wa-view";
+    $("wa-layer").className = on ? "on" : "";
     clearInterval(waTimer);
     if (!on) {
-      const d = rotator.current();
-      if (d) $("site-name").textContent = d.name;
-      if (zoomed === "site") unzoom();
+      $("dim").classList.remove("on");
       return;
     }
-    if (zoomed !== "site") zoom("site", 600);
-    $("site-name").textContent = "WhatsApp";
+    unzoom();
+    $("dim").classList.add("on");
     waTimer = setInterval(waFrame, 350);
     waFrame();
     const wa = S && S.whatsapp;
@@ -726,6 +603,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       }
     };
   })();
+  function keepIn(x, y) {
+    return { x: Math.max(80, Math.min(SW - 80, x)), y: Math.max(88, Math.min(H - 88, y)) };
+  }
   const spider = (() => {
     const el = $("spider");
     const ARMS = 8;
@@ -840,7 +720,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const sx = 1 + (s.moving ? 0.1 : 0.04) * pulse, sy = 1 - (s.moving ? 0.09 : 0.035) * pulse;
       const tilt = s.frantic ? Math.max(-45, Math.min(45, s.vx * 0.03)) : Math.max(-16, Math.min(16, s.vx * 0.05));
       const jx = s.shake ? rand(-s.shake, s.shake) : 0, jy = s.shake ? rand(-s.shake, s.shake) : 0;
-      const tr = `translate(${(s.x + jx).toFixed(1)}px, ${(s.y - s.hop + jy).toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
+      const at = keepIn(s.x + jx, s.y - s.hop + jy);
+      const tr = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) rotate(${(tilt + s.spin).toFixed(1)}deg) scale(${(sx * (1 + s.hop / 220)).toFixed(3)}, ${(sy * (1 + s.hop / 220)).toFixed(3)})`;
       el.style.webkitTransform = tr;
       el.style.transform = tr;
     }
@@ -849,8 +730,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       state: s,
       el,
       walkTo(x, y, speed = 220, abort) {
+        const p = keepIn(x, y);
         return new Promise((done) => {
-          s.target = { x, y, speed, abort, done };
+          s.target = { x: p.x, y: p.y, speed, abort, done };
         });
       },
       face() {
@@ -934,7 +816,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     });
   }
   function insight(key) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f;
     if (!S) return "";
     const a = ((_a = S.board) == null ? void 0 : _a.achievements) || {};
     const days = ((_b = S.board) == null ? void 0 : _b.countdown) ? Math.max(0, Math.ceil((new Date(S.board.countdown.target) - Date.now()) / 864e5)) : null;
@@ -945,21 +827,16 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         const pl = S.leads && S.leads.pipeline;
         return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.won} won` : "";
       }
-      case "site": {
-        const c = rotator.current();
-        const h = c && ((_c = S.sites) == null ? void 0 : _c[c.url]);
-        return c ? `${c.name} ${h ? h.ok ? `answers in ${h.ms} ms` : "is not answering" : "online"}` : "";
-      }
       case "meta": {
         const t = (S.tokens || []).filter((x) => x.used != null);
         return t.length ? t.map((x) => `${x.account} ${Math.round(x.used)}%`).join(", ") : "Claude usage";
       }
       case "team":
-        return ((_d = S.flowdesk) == null ? void 0 : _d.ok) ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : "FlowDesk not connected";
+        return ((_c = S.flowdesk) == null ? void 0 : _c.ok) ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : "FlowDesk not connected";
       case "lead":
-        return ((_e = S.leads) == null ? void 0 : _e.ok) ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : "";
+        return ((_d = S.leads) == null ? void 0 : _d.ok) ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : "";
       case "link":
-        return ((_f = S.innolink) == null ? void 0 : _f.ok) ? `${num(S.innolink.views)} opens, ${num(S.innolink.clicks)} clicks on ${S.innolink.clients.length} pages` : `${(((_g = S.board) == null ? void 0 : _g.innolinkClients) || []).length} Innolink pages`;
+        return ((_e = S.innolink) == null ? void 0 : _e.ok) ? `${num(S.innolink.views)} opens, ${num(S.innolink.clicks)} clicks on ${S.innolink.clients.length} pages` : `${(((_f = S.board) == null ? void 0 : _f.innolinkClients) || []).length} Innolink pages`;
       case "log": {
         const errs = (S.events || []).filter((e) => e.level === "error" && Date.now() - Date.parse(e.at) < 864e5).length;
         return errs ? `${errs} alert${errs > 1 ? "s" : ""} in the last 24 hours` : "No alerts in the last 24 hours";

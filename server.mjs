@@ -472,7 +472,10 @@ function demoList() {
   }
   return list;
 }
+// The website reel is gone from the TV, so the sites are no longer filmed or photographed.
+const SITE_REEL = false;
 function filmDemos() {
+  if (!SITE_REEL) return;
   if (filming) { filmQueued = true; return; }
   const todo = demoList().filter(d => !d.film);
   if (!todo.length) return;
@@ -533,6 +536,8 @@ function startWhatsApp() {
         if (wa.ready) wa.qr = null;
       } else if (m.type === 'qr') {
         wa.qr = 'data:image/png;base64,' + m.png;
+      } else if (m.type === 'open') {
+        wa.current = m.name || '';
       } else if (m.type === 'chats') {
         noteChats((m.names || []).filter(Boolean), m.all);
       } else if (m.type === 'screen') {
@@ -612,6 +617,7 @@ function startTunnel() {
 }
 
 function shootSites(onlyMissing) {
+  if (!SITE_REEL) return;
   if (shooting) return;
   const sites = (state.board?.sites || []).filter(s => !isInnolink(s.url) && (!onlyMissing || !state.shots[s.url]));
   if (!sites.length) return;
@@ -868,7 +874,7 @@ function rules(raw) {
   return null;
 }
 
-const ACTIONS = ['none', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'whatsapp_send', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
@@ -885,7 +891,8 @@ You can also act on the TV by choosing an action:
 - next / previous: change the site in "Our work". show_site: show one site (set site to its url).
 - tour: show each panel full screen in turn while you give the overview.
 - whatsapp_open: show WhatsApp on the TV with one chat open: set chat to the name exactly as it is in whatsapp.chatNames, the one they most likely meant (speech recognition mangles names: "eno webb" is InnoWeb, "so my order" is Sol Maior).
- whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list. You can look at WhatsApp but not write or send messages.
+ whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list.
+- whatsapp_send: only when WhatsApp is showing on the TV and they clearly ask you to send or type a message: set chat (the name exactly as in whatsapp.chatNames, or empty for the chat that's open) and text (exactly the words to send, nothing added). Jarvis reads it back and sends it only after they say yes.
 - backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
@@ -912,7 +919,7 @@ function snapshot() {
     flowdesk: f.ok ? { doneToday: f.doneToday, doneThisWeek: f.doneWeek, inProgress: f.inProgress, people: f.people.map(p => ({ name: p.name, status: p.status, doneToday: p.done, doneThisWeek: p.week, workingOnNow: p.working, stillDueToday: p.dueToday, lastDone: p.lastDone })) } : 'not connected',
     innolink: i.ok ? { opens: i.views, clicks: i.clicks, pages: i.clients.map(c => ({ name: c.name, opens: c.views, clicks: c.clicks })) } : 'not connected',
     sites: (state.board?.sites || []).map(s => ({ name: s.name, url: s.url, up: state.sites[s.url]?.ok ?? null })),
-    whatsapp: state.whatsapp.ready ? { showingOnTv: !!state.whatsapp.watching, chatNames: waChats.slice(0, 120) } : 'not linked',
+    whatsapp: state.whatsapp.ready ? { showingOnTv: !!state.whatsapp.watching, openChat: state.whatsapp.current || '', chatNames: waChats.slice(0, 120) } : 'not linked',
     recentLog: events.slice(-12).map(e => `${e.at.slice(11, 16)} ${e.level} ${e.text}`),
   };
 }
@@ -1011,6 +1018,8 @@ const wordsOf = (x) => norm(x).replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter(w 
 const spokenText = [];
 function isEcho(heard) {
   // Something she said in the last 30 seconds, word for word ("down we go").
+  // A command is never her echo, even when her last answer quoted it ("say pull up WhatsApp").
+  if (/^(hey |ok |okay )?(jarvis |honey |babe )?(please )?(open|scroll|show|pull|go|search|find|close|zoom|next|back|click|select|tap|check|read|give|tell|add|send|type|reply|text|message|hide|exit)\b/i.test(norm(heard))) return false;
   const h = norm(heard).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (h.split(' ').length >= 2 && spokenText.some(r => Date.now() - r.at < 30000 && r.text.includes(h))) return true;
   const words = wordsOf(heard);
@@ -1040,10 +1049,28 @@ function pushCommand(c) {
   return c;
 }
 
+// Sending on WhatsApp, only while it's on the TV: "send a message to Kasim
+// saying ...", "tell Kasim that ...", "type ... in this chat". The words are
+// taken as said (case and punctuation kept). It is read back first and only
+// sent after a yes.
+function waSendIntent(raw) {
+  if (!state.whatsapp.watching) return null;
+  const s = String(raw).replace(/^\s*(hey |ok |okay )?(jarvis|jervis|javis|travis|charvis)[,.!]?\s*/i, '').trim();
+  let m = /^(?:please\s+)?(?:can you\s+)?(?:send|text|message|whatsapp|tell|reply(?:\s+to)?|write(?:\s+to)?)\s+(?:a\s+message\s+to\s+|to\s+)?(.+?)\s*(?:,|:|\bsaying\b|\bthat says\b|\bthat\b)\s+(.+)$/i.exec(s);
+  if (m) {
+    const who = m[1].trim().replace(/\s+(?:a\s+message|on\s+whatsapp)$/i, '');
+    const here = /^(him|her|them|it|this chat|this person|here|the chat|this one|this group)$/i.test(who);
+    return { action: 'whatsapp_send', chat: here ? '' : who, text: m[2].trim(), reply: '' };
+  }
+  m = /^(?:please\s+)?(?:type|write|send|reply)\s+(.+?)\s+(?:here|in this chat|in the chat|to this chat|to them|to him|to her|in this group)$/i.exec(s);
+  if (m) return { action: 'whatsapp_send', chat: '', text: m[1].replace(/^["']|["']$/g, ''), reply: '' };
+  return null;
+}
+
 async function hear(text) {
   const heard = String(text || '').trim().slice(0, 400);
   if (isEcho(heard)) { console.log(`voice: ignored her own words "${heard}"`); return { action: 'ignored', heard, reply: '' }; }
-  let out = rules(heard);
+  let out = waSendIntent(heard) || rules(heard);
   if (out && out.reply && ['none', 'zoom', 'tour', 'focus'].includes(out.action) && Math.random() < 0.6) out = { ...out, reply: flirt() + out.reply };
   if (!out) {
     // Show the TV she heard, and say "let me think" while Claude starts.
@@ -1096,6 +1123,27 @@ async function hear(text) {
     const name = out.index != null ? null : ((matchChat(out.chat || '', waChats) || {}).name || out.chat || '');
     waCmd(name == null ? { cmd: 'open_index', index: out.index } : { cmd: 'open', name }).then(r => { if (!r.ok) announce(NOT_FOUND); });
     out = { action: 'whatsapp', reply: out.reply || pickLine(OPEN_LINES) };
+  }
+  if (out.action === 'whatsapp_send') {
+    const words = String(out.text || '').trim();
+    const name = out.chat ? ((matchChat(out.chat, waChats) || {}).name || '') : '';
+    if (!state.whatsapp.ready || !state.whatsapp.watching) out = { action: 'none', reply: 'Pull up WhatsApp first, darling, then tell me what to send.' };
+    else if (!words) out = { action: 'whatsapp', reply: 'What should I send, darling?' };
+    else if (out.chat && !name) out = { action: 'whatsapp', reply: NOT_FOUND };
+    else {
+      const to = name || state.whatsapp.current || 'this chat';
+      waWatch(true);
+      pending = {
+        expires: Date.now() + 60000,
+        run: async () => {
+          const r = await waCmd({ cmd: 'send', name, text: words });
+          if (!r.ok) return `It didn't send: ${r.detail}.`;
+          log('info', 'whatsapp', `Jarvis sent "${words}" to ${r.detail || to}`, { panel: 'site' });
+          return `Sent to ${r.detail || to}.`;
+        },
+      };
+      out = { action: 'whatsapp', reply: `Send "${words}" to ${to}? Say yes to send.` };
+    }
   }
   if (out.action === 'whatsapp_scroll' || out.action === 'whatsapp_list') {
     waWatch(true);

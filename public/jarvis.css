@@ -468,3 +468,49 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 #p-lead .lf-small { margin-top: 9px; }
 #p-lead .week-head { margin-top: 8px; }
 #p-lead .week { padding-top: 18px; }
+
+/* ------------------------------------------------------------ layout: the pipeline is the main event */
+/* Centre: the pipeline where the website reel was; the team below. */
+#p-pipe { left: 500px; top: 24px; width: 920px; height: 630px; }
+/* Right: the lead finder the full height above Claude and Innolink. */
+#p-lead { top: 24px; height: 716px; }
+
+/* The pipeline, big: the diagram, then the latest replies in full. */
+#p-pipe .card-head h2 { font-size: 22px; }
+#p-pipe .funnel { flex: 1; min-height: 0; }
+#p-pipe .sk b { font-size: 26px; }
+#p-pipe .sk span { font-size: 13px; }
+#p-pipe .sk i { font-size: 13px; }
+#p-pipe .replies { flex: none; max-height: 230px; overflow: hidden; margin-top: 10px; }
+.rp { font-size: 14px; }
+.rp span { white-space: normal; overflow: visible; text-overflow: clip; color: var(--soft); }
+.rp.auto span { color: var(--muted); }
+.rp i.hot { color: var(--green); }
+
+/* The lead finder: the last WhatsApp sent, word for word, and each project. */
+.lf-last { flex: none; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(37, 211, 102, 0.08); }
+.lf-last:empty { display: none; }
+.lf-last-head { display: flex; align-items: baseline; font-size: 12px; color: var(--muted); }
+.lf-last-head b { color: #4ade80; font-weight: 700; margin-right: 6px; }
+.lf-last-head span { margin-left: auto; padding-left: 8px; white-space: nowrap; }
+.lf-last-text { margin-top: 6px; font-size: 13px; line-height: 1.4; color: #e2e8f0; }
+.lf-projects { flex: none; margin-top: 10px; }
+.lf-projects div { display: flex; align-items: baseline; padding: 5px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); font-size: 13px; }
+.lf-projects div:last-child { border-bottom: 0; }
+.lf-projects span { -webkit-box-flex: 1; flex: 1; color: #e2e8f0; }
+.lf-projects b { font-size: 16px; font-weight: 800; margin-right: 10px; }
+.lf-projects i { font-style: normal; color: var(--muted); font-size: 12px; margin-left: 8px; min-width: 70px; text-align: right; }
+#p-lead .week { min-height: 70px; }
+
+/* WhatsApp: its own layer over the whole screen. */
+#wa-layer { position: absolute; left: 20px; top: 24px; right: 20px; bottom: 24px; z-index: 18; display: none; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6); }
+#wa-layer.on { display: block; }
+#wa-layer .wa-view { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+
+/* The pipeline as wide as the team panel under it. */
+#p-pipe { width: calc(100% - 1000px); }
+#p-pipe .replies div.rp { white-space: normal; }
+#p-pipe .replies div.rp span { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* The octopus stays out of the way while WhatsApp is up. */
+#wa-layer.on ~ #spider { visibility: hidden; }
