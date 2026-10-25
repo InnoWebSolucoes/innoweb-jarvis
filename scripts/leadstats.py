@@ -302,10 +302,14 @@ def collect(url):
 
 
 def main():
-    # On the PC: the lead finder's own connection settings.
-    sys.path.insert(0, sys.argv[1])
-    from webapp import appdb
-    url = appdb.database_url()
+    # The shared database's address: LEAD_DB_URL (Jarvis's .env), or else the
+    # lead finder folder's own settings.
+    import os
+    url = os.environ.get('LEAD_DB_URL')
+    if not url and len(sys.argv) > 1:
+        sys.path.insert(0, sys.argv[1])
+        from webapp import appdb
+        url = appdb.database_url()
     if not url:
         print(json.dumps({'ok': False, 'error': 'the lead finder has no shared database set (SUPABASE_PASSWORD in its .env)'}))
         return

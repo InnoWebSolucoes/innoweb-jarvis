@@ -37,7 +37,9 @@ const PASSWORD = env.JARVIS_PASSWORD || '';
 // The lead finder keeps its lists in Supabase; scripts/leadstats.py reads them
 // read-only with the lead finder's own Python and settings.
 const LEADFINDER_DIR = env.LEADFINDER_DIR || 'C:/Users/rafam/Agency/lead_finder';
-const LEADFINDER_PYTHON = env.LEADFINDER_PYTHON || path.join(LEADFINDER_DIR, '.venv', 'Scripts', 'python.exe');
+// With LEAD_DB_URL set, the lead finder's numbers come straight from its shared
+// database with this PC's own Python; the lead finder folder isn't needed.
+const LEADFINDER_PYTHON = env.LEADFINDER_PYTHON || (env.LEAD_DB_URL ? (env.PYTHON || 'python') : path.join(LEADFINDER_DIR, '.venv', 'Scripts', 'python.exe'));
 
 // FlowDesk's URL and public anon key are read from FlowDesk's own .env when
 // they aren't set here. Reading needs a service role key, or an admin login.
@@ -196,7 +198,7 @@ const LEAD_EVENTS = {
 let leadsFirst = true;
 async function refreshLeads() {
   try {
-    const next = await runJson(LEADFINDER_PYTHON, ['-I', path.join(ROOT, 'scripts', 'leadstats.py'), LEADFINDER_DIR]);
+    const next = await runJson(LEADFINDER_PYTHON, [path.join(ROOT, 'scripts', 'leadstats.py'), LEADFINDER_DIR], { env: { ...process.env, ...(env.LEAD_DB_URL ? { LEAD_DB_URL: env.LEAD_DB_URL } : {}) } });
     if (!next.ok) throw new Error(next.error);
     const prev = state.leads;
     // Everything from the last day goes into the log, oldest first. What was
@@ -781,20 +783,28 @@ function score(heard, name, f, min) {
   for (let i = 1; i < tokens.length; i++) for (let j = i + 1; j <= tokens.length; j++) best = Math.max(best, sim(h, f(tokens.slice(i, j).join(' '))) * 0.9);
   return best;
 }
-function matchChat(said, names) {
-  const words = norm(said).replace(/[^a-z0-9+ ]/g, ' ').split(/\s+/).filter(w => w && !CHAT_STOP.has(w));
-  let best = null;
-  for (const name of names) {
-    for (let i = 0; i < words.length; i++) {
-      for (let len = 1; len <= Math.min(5, words.length - i); len++) {
-        const piece = words.slice(i, i + len).join(' ');
-        if (squash(piece).length < 3) continue;
-        const sc = Math.max(score(piece, name, squash, 3), score(piece, name, sound, 3) * 0.95);
-        if (!best || sc > best.score) best = { name, score: sc, piece };
+// Every name with how well something said matches it, best first. Each of the
+// speech recognition's guesses is tried, and a name keeps its best score.
+function rankNames(saids, names, stop = CHAT_STOP) {
+  const best = new Map();
+  for (const said of [].concat(saids).filter(Boolean)) {
+    const words = norm(said).replace(/[^a-z0-9+ ]/g, ' ').split(/\s+/).filter(w => w && !stop.has(w));
+    for (const name of names) {
+      for (let i = 0; i < words.length; i++) {
+        for (let len = 1; len <= Math.min(5, words.length - i); len++) {
+          const piece = words.slice(i, i + len).join(' ');
+          if (squash(piece).length < 3) continue;
+          const sc = Math.max(score(piece, name, squash, 3), score(piece, name, sound, 3) * 0.95);
+          if (!best.has(name) || sc > best.get(name).score) best.set(name, { name, score: sc, piece });
+        }
       }
     }
   }
-  return best && best.score >= 0.6 ? best : null;
+  return [...best.values()].sort((a, b) => b.score - a.score);
+}
+function matchChat(said, names) {
+  const r = rankNames(said, names)[0];
+  return r && r.score >= 0.6 ? r : null;
 }
 // "the fourth one", "third chat", "number 2": a position on screen (0 = the top).
 const ORD = { first: 0, '1st': 0, one: 0, second: 1, '2nd': 1, two: 1, third: 2, '3rd': 2, three: 2, fourth: 3, '4th': 3, four: 3, fifth: 4, '5th': 4, five: 4,
@@ -874,7 +884,7 @@ function rules(raw) {
   return null;
 }
 
-const ACTIONS = ['none', 'whatsapp_send', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
+const ACTIONS = ['none', 'todo_tick', 'whatsapp_send', 'whatsapp_open', 'whatsapp_scroll', 'whatsapp_list', 'backflip', 'tour', 'whatsapp', 'zoom', 'focus', 'unzoom', 'reload', 'refresh', 'reshoot', 'next', 'previous', 'show_site', 'celebrate', 'alarm', 'mute', 'unmute', 'add_task'];
 let pending = null;  // an action waiting for a "yes"
 const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const AI_SYSTEM = `You are Jarvis, the voice of Innoweb's office dashboard. Innoweb is a small digital agency in Portugal and Angola that builds websites, corporate email, branding and social media for small businesses. The dashboard is on a TV in the office; people talk to you and you answer out loud.
@@ -892,11 +902,14 @@ You can also act on the TV by choosing an action:
 - tour: show each panel full screen in turn while you give the overview.
 - whatsapp_open: show WhatsApp on the TV with one chat open: set chat to the name exactly as it is in whatsapp.chatNames, the one they most likely meant (speech recognition mangles names: "eno webb" is InnoWeb, "so my order" is Sol Maior).
  whatsapp_scroll: scroll the open WhatsApp chat (set dir to up or down). whatsapp_list: back to the WhatsApp chat list.
+- todo_tick: tick an item off the admin to-do list (adminTodoList.open): set task to the item's title exactly as on the list. Jarvis ticks it in FlowDesk.
 - whatsapp_send: only when WhatsApp is showing on the TV and they clearly ask you to send or type a message: set chat (the name exactly as in whatsapp.chatNames, or empty for the chat that's open) and text (exactly the words to send, nothing added). Jarvis reads it back and sends it only after they say yes.
 - backflip: the octopus does a backflip.
 - celebrate: confetti and fireworks. alarm: test the alarm. mute / unmute: stop or start speaking.
 - add_task: when they say someone should do something ("Adilson needs to redo the Okulya flyers by Friday"), add it to that person's FlowDesk tasks: set assignee (one of the FlowDesk people in the data; speech recognition mangles names, so pick the closest), task and due. Your reply says it is added.
 - none: just answer.
+They speak English and Portuguese, often mixed in one sentence. Speech recognition listens in English, so Portuguese names and words arrive mangled ("almerivi" is Alma Leve, "eno web" is InnoWeb, "so my order" is Sol Maior). You get its other guesses too. Always work out what they meant from everything on the dashboard: the to-do list, the team, the WhatsApp chats, the leads and replies. Pick the closest real name, and use the real name when you answer.
+
 How to answer: the first line is a JSON object with what to do on the TV, then a new line, then exactly what you say out loud. For example:
 {"action":"none"}
 {"action":"zoom","panel":"team"}
@@ -960,7 +973,8 @@ function askClaude(text, hooks = {}) {
   spareBrain = null;
   setTimeout(warmClaude, 300);   // the next one starts getting ready
   const convo = recent.map(r => `They said: "${r.heard}" / You said: "${r.reply}"`).join('\n');
-  const prompt = `Dashboard right now:\n${JSON.stringify(snapshot())}\n\n${convo ? `Earlier:\n${convo}\n\n` : ''}They just said: "${text}"`;
+  const guesses = (hooks.alts || []).length ? `\nSpeech recognition's other guesses: ${hooks.alts.map(a => `"${a}"`).join(', ')}` : '';
+  const prompt = `Dashboard right now:\n${JSON.stringify(snapshot())}\n\n${convo ? `Earlier:\n${convo}\n\n` : ''}They just said: "${text}"${guesses}`;
   return new Promise(resolve => {
     let buf = '', raw = '', head = null, bodyAt = 0, settled = false;
     const finish = (a) => { if (settled) return; settled = true; clearTimeout(timer); try { child.kill(); } catch {} resolve(a); };
@@ -1049,6 +1063,65 @@ function pushCommand(c) {
   return c;
 }
 
+// Ticking off FlowDesk's admin to-do list: "tick off build alma leve website".
+// What was heard is matched by sound to the open to-dos (so "almerivi" still
+// finds "alma leve"); when two sound alike she asks which one; "undo" puts the
+// last one back for five minutes.
+const TODO_STOP = new Set([...CHAT_STOP, 'tick', 'ticked', 'off', 'take', 'cross', 'mark', 'as', 'done', 'complete', 'completed', 'finish', 'finished',
+  'remove', 'check', 'checked', 'to', 'do', 'todo', 'list', 'item', 'task', 'from', 'delete', 'clear', 'that', 'it', 'is', 'we', 'have', 've']);
+// How well what was said fits each to-do: every word said is matched (by
+// spelling and by sound) to the item's words or pairs of words ("almerivi" can
+// stand for "alma leve"), and the item's score is the average over the words
+// said. So "almerivi website" picks the Alma Leve website, not any "website".
+function rankTodos(saids, titles) {
+  const best = new Map();
+  for (const said of [].concat(saids).filter(Boolean)) {
+    const words = norm(said).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 1 && !TODO_STOP.has(w));
+    if (!words.length) continue;
+    for (const title of titles) {
+      const toks = norm(title).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+      const grams = [];
+      for (let i = 0; i < toks.length; i++) for (let n = 1; n <= 3 && i + n <= toks.length; n++) grams.push(toks.slice(i, i + n).join(' '));
+      const fit = (w) => Math.max(0, ...grams.map(g => Math.max(sim(squash(w), squash(g)), 0.95 * sim(sound(w), sound(g)) * (sound(w).length >= 3 ? 1 : 0.6))));
+      const sc = words.reduce((sum, w) => sum + fit(w), 0) / words.length;
+      if (!best.has(title) || sc > best.get(title).score) best.set(title, { name: title, score: sc });
+    }
+  }
+  return [...best.values()].sort((a, b) => b.score - a.score);
+}
+let todoChoice = null, lastTick = null;
+function todoIntent(heard, alts) {
+  const t = norm(heard);
+  const open = state.flowdesk.ok ? ((state.flowdesk.todo && state.flowdesk.todo.open) || []).filter(o => o.id) : [];
+  // The answer to "which one?"
+  if (todoChoice && todoChoice.expires > Date.now()) {
+    const pos = chatPosition(t);
+    const pick = pos != null ? todoChoice.options[pos] : (() => { const r = rankTodos([heard, ...alts], todoChoice.options.map(o => o.title))[0]; return r && r.score >= 0.5 ? todoChoice.options.find(o => o.title === r.name) : null; })();
+    if (pick) { todoChoice = null; return { action: 'todo_tick', id: pick.id, title: pick.title }; }
+  }
+  if (/\b(undo|put it back|untick|bring it back)\b/.test(t) && lastTick && Date.now() - lastTick.at < 5 * 60000) return { action: 'todo_undo' };
+  if (!/\b(tick|take|cross|mark|complete|completed|finish|finished|done|remove|check)\b/.test(t) || !open.length) return null;
+  const [a, b] = rankTodos([heard, ...alts], open.map(o => o.title));
+  if (!a || a.score < 0.6) return null;
+  if (b && b.score >= 0.6 && a.score - b.score < 0.05) {
+    todoChoice = { options: [a, b].map(x => open.find(o => o.title === x.name)), expires: Date.now() + 90000 };
+    return { action: 'none', reply: `Which one, darling: "${a.name}" or "${b.name}"?` };
+  }
+  return { action: 'todo_tick', id: open.find(o => o.title === a.name).id, title: a.name };
+}
+async function flowdeskTodo(id, done) {
+  const h = await flowdeskHeaders();
+  // Who ticked it: the admin Jarvis is signed in as.
+  let me = null;
+  try { me = JSON.parse(Buffer.from(String(h.Authorization).split(' ')[1].split('.')[1], 'base64url').toString()).sub || null; } catch {}
+  const body = done ? { is_completed: true, completed_at: new Date().toISOString(), completed_by: me } : { is_completed: false, completed_at: null, completed_by: null };
+  const res = await fetch(`${FLOWDESK.url}/rest/v1/project_todos?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { ...h, 'Content-Type': 'application/json', Prefer: 'return=representation' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`FlowDesk ${res.status} ${(await res.text()).slice(0, 120)}`);
+  if (!(await res.json()).length) throw new Error('FlowDesk did not let Jarvis change it');
+}
+
 // Sending on WhatsApp, only while it's on the TV: "send a message to Kasim
 // saying ...", "tell Kasim that ...", "type ... in this chat". The words are
 // taken as said (case and punctuation kept). It is read back first and only
@@ -1067,10 +1140,12 @@ function waSendIntent(raw) {
   return null;
 }
 
-async function hear(text) {
+async function hear(text, alternatives = []) {
   const heard = String(text || '').trim().slice(0, 400);
+  // The other guesses speech recognition made (it listens in one language; names in the other come out mangled).
+  const alts = [].concat(alternatives || []).map(a => String(a || '').trim().slice(0, 400)).filter(a => a && a !== heard).slice(0, 4);
   if (isEcho(heard)) { console.log(`voice: ignored her own words "${heard}"`); return { action: 'ignored', heard, reply: '' }; }
-  let out = waSendIntent(heard) || rules(heard);
+  let out = waSendIntent(heard) || todoIntent(heard, alts) || rules(heard);
   if (out && out.reply && ['none', 'zoom', 'tour', 'focus'].includes(out.action) && Math.random() < 0.6) out = { ...out, reply: flirt() + out.reply };
   if (!out) {
     // Show the TV she heard, and say "let me think" while Claude starts.
@@ -1089,8 +1164,9 @@ async function hear(text) {
       if (cut > 0 && rest.slice(0, cut).trim()) { talk.say(rest.slice(0, cut).trim()); said += cut; }
     };
     out = await askClaude(heard, {
+      alts,
       head: (h) => {
-        if (h.action === 'add_task' || /^whatsapp_/.test(h.action)) return;   // the reply depends on FlowDesk or WhatsApp
+        if (h.action === 'add_task' || h.action === 'todo_tick' || /^whatsapp_/.test(h.action)) return;   // the reply depends on FlowDesk or WhatsApp
         c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard, ...h, reply: '', streaming: true });
         talk = voiceStream(c.id);
         console.log(`voice: Claude started answering after ${Date.now() - t0} ms`);
@@ -1123,6 +1199,35 @@ async function hear(text) {
     const name = out.index != null ? null : ((matchChat(out.chat || '', waChats) || {}).name || out.chat || '');
     waCmd(name == null ? { cmd: 'open_index', index: out.index } : { cmd: 'open', name }).then(r => { if (!r.ok) announce(NOT_FOUND); });
     out = { action: 'whatsapp', reply: out.reply || pickLine(OPEN_LINES) };
+  }
+  if (out.action === 'todo_tick') {
+    const item = out.id ? { id: out.id, title: out.title } : (() => {
+      const open = ((state.flowdesk.todo && state.flowdesk.todo.open) || []).filter(o => o.id);
+      const r = rankTodos([out.task || out.title || '', heard, ...alts], open.map(o => o.title))[0];
+      return r && r.score >= 0.6 ? open.find(o => o.title === r.name) : null;
+    })();
+    if (!item) out = { action: 'none', reply: "I can't find that on the to-do list, darling. Say it again?" };
+    else {
+      try {
+        await flowdeskTodo(item.id, true);
+        lastTick = { id: item.id, title: item.title, at: Date.now() };
+        log('info', 'flowdesk', `Jarvis ticked off "${item.title}" on the to-do list`, { panel: 'todo' });
+        refreshFlowdesk();
+        out = { action: 'none', reply: `Ticked off "${item.title}". Say undo if that was the wrong one.` };
+      } catch (err) {
+        log('warn', 'flowdesk', `Couldn't tick off "${item.title}": ${err.message}`, { panel: 'todo' });
+        out = { action: 'none', reply: "FlowDesk wouldn't let me tick that off. The reason is in the live log." };
+      }
+    }
+  }
+  if (out.action === 'todo_undo') {
+    try {
+      await flowdeskTodo(lastTick.id, false);
+      log('info', 'flowdesk', `Jarvis put "${lastTick.title}" back on the to-do list`, { panel: 'todo' });
+      out = { action: 'none', reply: `"${lastTick.title}" is back on the list.` };
+      lastTick = null;
+      refreshFlowdesk();
+    } catch (err) { out = { action: 'none', reply: "FlowDesk wouldn't let me put it back." }; }
   }
   if (out.action === 'whatsapp_send') {
     const words = String(out.text || '').trim();
@@ -1534,9 +1639,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { last: nextCommandId - 1, commands: commands.filter(c => c.id > after), live: lc ? { id: lc.id, reply: lc.reply, done: !lc.streaming } : null });
     }
     if (url.pathname === '/api/voice' && req.method === 'POST') {
-      const { text } = await body(req);
+      const { text, alts } = await body(req);
       if (!String(text || '').trim()) return send(res, 400, { error: 'Nothing heard' });
-      return send(res, 200, await hear(text));
+      return send(res, 200, await hear(text, alts));
     }
     const tts = url.pathname.match(/^\/api\/tts\/(\d+|filler-\d)(\.\w+)?$/);
     if (tts) {

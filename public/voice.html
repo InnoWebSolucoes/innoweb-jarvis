@@ -159,12 +159,12 @@
   }
 
   // ---------------------------------------------------------------- talking to the server
-  async function send(text) {
+  async function send(text, alts) {
     text = text.trim();
     if (!text) return;
     status('Thinking…');
     try {
-      const c = await (await fetch('/api/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+      const c = await (await fetch('/api/voice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, alts: alts || [] }) })).json();
       followUntil = Date.now() + 20000 + Math.min(15000, String((c && c.reply) || '').split(' ').length * 350);
       // An answer that streamed to the TV is shown here once it's complete.
       if (c && c.id && c.reply && shown.indexOf(c.id) < 0) { shown.push(c.id); showLine(c); say(c.reply); }
@@ -229,15 +229,17 @@
     rec = new SR();
     rec.lang = $('lang').value;
     rec.interimResults = true;
+    rec.maxAlternatives = 5;   // several guesses: Jarvis picks the one that fits what's on screen
     rec.continuous = always();
     rec.onstart = () => { running = true; if (!listen.reported) { listen.reported = true; report('microphone on'); } };
     rec.onresult = (e) => {
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i], t = r[0].transcript;
+        const guesses = []; for (let k = 1; k < r.length; k++) guesses.push(String(r[k].transcript).replace(WAKE, ' ').trim());
         if (!r.isFinal) { interim += t; continue; }
         $('interim').textContent = '';
-        if (!always()) { report('heard "' + t + '"'); send(t); continue; }
+        if (!always()) { report('heard "' + t + '"'); send(t, guesses); continue; }
         // Always listening: act on what follows "Jarvis" (even when the final
         // words lost it), on the sentence after a lone "Jarvis", or on anything
         // said in the 20 seconds after she answered.
@@ -247,8 +249,8 @@
         const rest = t.replace(WAKE, ' ').trim();
         if (woke) {
           chime();
-          if (rest.length > 1) send(rest); else { wokeAt = Date.now(); status('Yes?'); }
-        } else if (Date.now() - wokeAt < 10000 || Date.now() < followUntil) { wokeAt = 0; if (rest.length > 1) send(rest); }
+          if (rest.length > 1) send(rest, guesses); else { wokeAt = Date.now(); status('Yes?'); }
+        } else if (Date.now() - wokeAt < 10000 || Date.now() < followUntil) { wokeAt = 0; if (rest.length > 1) send(rest, guesses); }
         else if (rest.length > 1) { $('interim').textContent = 'Heard "' + rest + '" (say Jarvis first)'; setTimeout(() => { if (/say Jarvis first/.test($('interim').textContent)) $('interim').textContent = ''; }, 4000); }
       }
       if (interim) $('interim').textContent = interim;
