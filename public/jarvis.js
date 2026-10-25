@@ -274,19 +274,21 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const box = $("funnel"), W2 = box.offsetWidth || 400, H2 = box.offsetHeight || 210;
     const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
     const sent = pl.sent || 0, replied = pl.replied || 0, answered = pl.answered || 0, follow = pl.followUp || 0, won = pl.won || 0;
+    const auto = pl.autoReplied || 0;
     const no = Math.min(pl.saidNo || 0, Math.max(0, replied - answered));
     const nodes = {
       sent: { n: sent, label: "Contacted", color: "#94a3b8" },
       replied: { n: replied, label: "Replied", color: "#3b82f6" },
-      silent: { n: Math.max(0, sent - replied), label: "No reply yet", color: "#f87171" },
+      auto: { n: auto, label: "Auto reply", color: "#64748b" },
+      silent: { n: Math.max(0, sent - replied - auto), label: "No reply yet", color: "#f87171" },
       answered: { n: answered, label: "We answered", color: "#8b5cf6" },
       waiting: { n: Math.max(0, replied - answered - no), label: "Waiting on us", color: "#fb923c" },
       no: { n: no, label: "Said no", color: "#f87171" },
       follow: { n: follow, label: "Follow-up", color: "#38bdf8" },
       won: { n: won, label: "Won", color: "#34d399" }
     };
-    const links = [["sent", "replied"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
-    const cols = [["sent"], ["replied", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
+    const links = [["sent", "replied"], ["sent", "auto"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
+    const cols = [["sent"], ["replied", "auto", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
     const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 20) / (cols.length - 1), 190) : 0;
     cols.forEach((ids, c) => {

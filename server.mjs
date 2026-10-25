@@ -496,8 +496,23 @@ async function pingSite(url) {
 }
 
 async function refreshSites() {
-  const sites = state.board?.sites || [];
+  // Innolink pages aren't checked: every visit counts as an "open" on the
+  // client's Innolink stats, and a check every 5 minutes inflated them.
+  const innolink = (u) => /(^|\.)innolink\.info\b/.test(String(u).replace(/^https?:\/\//, ''));
+  for (const s of state.board?.sites || []) if (innolink(s.url)) state.sites[s.url] = { ok: true, status: 200, ms: null, skipped: true };
+  const sites = (state.board?.sites || []).filter(s => !innolink(s.url));
   const results = await Promise.all(sites.map(s => pingSite(s.url).then(r => [s, r])));
+  // A site that didn't answer gets a second try 20 seconds later.
+  if (results.some(([, r]) => !r.ok)) {
+    await new Promise(r => setTimeout(r, 20000));
+    for (const pair of results) if (!pair[1].ok) pair[1] = await pingSite(pair[0].url);
+  }
+  // Most sites failing together is this computer's internet, not the sites.
+  const failing = results.filter(([, r]) => !r.ok).length;
+  if (results.length >= 4 && failing >= Math.ceil(results.length * 0.6)) {
+    log('warn', 'sites', `This computer's internet dropped: ${failing} sites didn't answer, so none is counted as down`, { panel: 'site', quiet: true });
+    return;
+  }
   for (const [s, r] of results) {
     const was = state.sites[s.url];
     if (r.ok) {

@@ -65,45 +65,72 @@ def tracker(rows):
 
 
 # A lead counts as contacted when the outreach reached it: emailed, messaged,
-# or a WhatsApp went out. (A status set from an old phone call, like the Porto
+# a WhatsApp went out (from any of the numbers), the UK run sent it, or an
+# Instagram message went. (A status set from an old phone call, like the Porto
 # pilot's "not interested", is not part of the outreach and doesn't count.)
-CONTACTED = "(status IN ('Emailed', 'Messaged') OR wa_sent = 1)"
+CONTACTED = "(status IN ('Emailed', 'Messaged') OR wa_sent = 1 OR uk_sent = 1 OR ig_sent = 1)"
 AUTO_REPLY = ('thanks for your message', 'thank you for your message', 'please answer if first time', 'we will get back',
               "we'll get back", 'out of office', 'automatic reply', 'auto-reply', 'currently unavailable', 'away message')
+# Where the finder writes replies: the newer fields (replied_at, uk_last_reply,
+# uk_autoreply, interested_at, uk_told_tomorrow) and the older whatsapp_reply.
+LEAD_VIEW = """
+  SELECT lead_id,
+    max(CASE WHEN key = 'call_result' THEN value END) AS status,
+    max(CASE WHEN key = 'call_result' THEN updated_at END) AS status_at,
+    max(CASE WHEN key = 'whatsapp_status' AND value LIKE 'sent %%' THEN 1 END) AS wa_sent,
+    max(CASE WHEN key = 'uk_status' AND value = 'sent' THEN 1 END) AS uk_sent,
+    max(CASE WHEN key = 'instagram_status' AND value LIKE 'sent %%' THEN 1 END) AS ig_sent,
+    max(CASE WHEN key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' THEN updated_at END) AS reply_at,
+    max(CASE WHEN key IN ('uk_autoreply', 'whatsapp_autoreply') AND coalesce(value, '') <> '' THEN updated_at END) AS auto_at,
+    max(CASE WHEN key = 'interested_at' AND coalesce(value, '') <> '' THEN 1 END) AS interested,
+    max(CASE WHEN key = 'uk_told_tomorrow' AND coalesce(value, '') <> '' THEN 1 END) AS told,
+    max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date
+  FROM lead_values GROUP BY lead_id"""
+
+
+def said_of(value):
+    """The words of a reply, without the finder's stamps:
+    "24 Oct 17:33 (interested): the words 17:13" or "[15:55, 10/24/2026] +44 7380 866999: the words 15:55"."""
+    t = str(value or '').strip()
+    if t.startswith('['):
+        t = t.split('] ', 1)[-1]
+        t = t.split(': ', 1)[-1]
+    elif '): ' in t[:40]:
+        t = t.split('): ', 1)[-1]
+    elif 'replied (seen' in t[:20]:
+        t = t.split(': ', 1)[-1].split('] ', 1)[-1].split(': ', 1)[-1]
+    parts = t.rsplit(' ', 1)
+    if len(parts) == 2 and len(parts[1]) == 5 and parts[1][2] == ':' and parts[1].replace(':', '').isdigit():
+        t = parts[0]
+    return t.strip()
 
 
 def pipeline(rows):
-    """Where every contacted lead has got to: they replied (a WhatsApp reply the
-    finder saw, or a status the team set after contacting them), we answered,
-    follow-up, won. With the replies themselves, by name."""
+    """Where every contacted lead has got to: they replied (or only an automatic
+    reply came back), we answered, follow-up (interested, a callback, a meeting),
+    won. With the latest replies themselves, by name."""
     stage_sql = f"""
-      WITH v AS (
-        SELECT lead_id,
-          max(CASE WHEN key = 'call_result' THEN value END) AS status,
-          max(CASE WHEN key = 'call_result' THEN updated_at END) AS status_at,
-          max(CASE WHEN key = 'whatsapp_status' AND value LIKE 'sent %%' THEN 1 END) AS wa_sent,
-          max(CASE WHEN key = 'whatsapp_reply' AND coalesce(value, '') <> '' THEN updated_at END) AS reply_at,
-          max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date
-        FROM lead_values GROUP BY lead_id),
-      c AS (SELECT * FROM v WHERE {CONTACTED} OR reply_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')
+      WITH v AS ({LEAD_VIEW}),
+      c AS (SELECT * FROM v WHERE {CONTACTED} OR reply_at IS NOT NULL OR auto_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')
                                   OR (status = 'Not interested' AND status_at > '2026-10-20'))
       SELECT count(*),
-        count(*) FILTER (WHERE reply_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested')),
-        count(*) FILTER (WHERE status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won') OR (reply_at IS NOT NULL AND status_at > reply_at)),
-        count(*) FILTER (WHERE follow_date = 1 OR status IN ('Meeting set', 'Proposal sent', 'Won')),
+        count(*) FILTER (WHERE reply_at IS NOT NULL OR interested = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested')),
+        count(*) FILTER (WHERE auto_at IS NOT NULL AND reply_at IS NULL AND interested IS NULL AND coalesce(status, '') NOT IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested')),
+        count(*) FILTER (WHERE told = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won') OR (reply_at IS NOT NULL AND status_at > reply_at)),
+        count(*) FILTER (WHERE interested = 1 OR follow_date = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')),
         count(*) FILTER (WHERE status = 'Won'),
         count(*) FILTER (WHERE status = 'Not interested')
       FROM c"""
-    sent, replied, answered, follow, won, said_no = rows(stage_sql)[0]
-    latest = rows("""SELECT l.name, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
-                     WHERE v.key = 'whatsapp_reply' AND coalesce(v.value, '') <> '' ORDER BY v.updated_at DESC LIMIT 5""")
+    sent, replied, auto, answered, follow, won, said_no = rows(stage_sql)[0]
+    latest = rows("""SELECT l.name, v.key, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
+                     WHERE v.key IN ('whatsapp_reply', 'uk_last_reply', 'uk_autoreply', 'whatsapp_autoreply') AND coalesce(v.value, '') <> ''
+                     ORDER BY (v.key IN ('uk_autoreply', 'whatsapp_autoreply')), v.updated_at DESC LIMIT 6""")
     replies = []
-    for name, value, at in latest:
-        said = value.split(': ', 1)[-1].split('] ', 1)[-1]
-        said = said.split(': ', 1)[-1] if said.startswith(name[:6]) else said
-        auto = any(k in said.lower() for k in AUTO_REPLY)
-        replies.append({'name': name, 'said': said[:160], 'at': at, 'auto': auto})
-    return {'sent': sent, 'replied': replied, 'answered': answered, 'followUp': follow, 'won': won, 'saidNo': said_no, 'replies': replies}
+    for name, key, value, at in latest:
+        said = said_of(value)
+        is_auto = 'autoreply' in key or any(k in said.lower() for k in AUTO_REPLY)
+        replies.append({'name': name, 'said': said[:160], 'at': at, 'auto': is_auto, 'interested': '(interested)' in str(value)[:40]})
+    return {'sent': sent, 'replied': replied, 'autoReplied': auto, 'answered': answered, 'followUp': follow, 'won': won, 'saidNo': said_no, 'replies': replies}
 
 
 def week(rows):
@@ -151,8 +178,8 @@ def main():
             'emailsToday': one("SELECT count(*) FROM lead_values WHERE key = 'call_result' AND value = 'Emailed' AND updated_at >= %s", midnight),
             'sitesSentToday': one("""SELECT count(DISTINCT lead_id) FROM lead_values WHERE updated_at >= %s AND
                                    ((key = 'call_result' AND value IN ('Emailed', 'Messaged')) OR (key = 'whatsapp_status' AND value LIKE 'sent %%'))""", midnight),
-            'replies': one("SELECT count(*) FROM lead_values WHERE key = 'whatsapp_reply' AND coalesce(value, '') <> ''"),
-            'repliesToday': one("SELECT count(*) FROM lead_values WHERE key = 'whatsapp_reply' AND coalesce(value, '') <> '' AND updated_at >= %s", midnight),
+            'replies': one("SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> ''"),
+            'repliesToday': one("SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' AND updated_at >= %s", midnight),
             'tracker': None,
             'run': None,
             'usage': {},
@@ -199,12 +226,8 @@ def main():
             elif status == 'running':
                 ev.append({'id': f'run:{i}:start', 'at': at, 'kind': 'run', 'text': f'Lead finder started {label} in {project}'})
         for lead, name, value, at in rows("""SELECT v.lead_id, l.name, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
-                                             WHERE v.key = 'whatsapp_reply' AND coalesce(v.value, '') <> '' AND v.updated_at >= %s""", since):
-            # "replied (seen 23 Oct 11:29): [10:47, 23/10/2026] Name: the message"
-            said = value.split(': ', 1)[-1]
-            said = said.split('] ', 1)[-1]
-            said = said.split(': ', 1)[-1] if said.startswith(name[:6]) else said
-            ev.append({'id': f'reply:{lead}', 'at': at, 'kind': 'reply', 'text': f'{name} replied on WhatsApp: "{said[:160]}"', 'name': name})
+                                             WHERE v.key IN ('whatsapp_reply', 'uk_last_reply') AND coalesce(v.value, '') <> '' AND v.updated_at >= %s""", since):
+            ev.append({'id': f'reply:{lead}', 'at': at, 'kind': 'reply', 'text': f'{name} replied on WhatsApp: "{said_of(value)[:160]}"', 'name': name})
         out['tracker'] = tracker(rows)
         out['pipeline'] = pipeline(rows)
         out['week'] = week(rows)
