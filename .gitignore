@@ -11,3 +11,5 @@ data/brain/
 data/cert/
 __pycache__/
 bin/
+data/innolink-*.json
+data/whatsapp/chats.json
