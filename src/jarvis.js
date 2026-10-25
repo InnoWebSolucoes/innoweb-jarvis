@@ -252,6 +252,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const NAMES = { leads: 'The lead finder', flowdesk: 'FlowDesk', innolink: 'Innolink', board: 'The board' };
     const down = Object.keys(failing).map((k) => `${NAMES[k] || k} is offline`);
     for (const site of S.board && S.board.sites || []) { const h = S.sites && S.sites[site.url]; if (h && !h.ok) down.push(`${site.name} is down`); }
+    // The Jarvis PC is off: these are the last figures it saved.
+    if (S.stale && S.savedAt) down.unshift('the Jarvis computer is off, figures from ' + new Date(S.savedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
     showOffline(down);
 
     rotator.sync();

@@ -2,6 +2,7 @@
 // the Jarvis PC in the office, through its Cloudflare tunnel. The tunnel's
 // current address is published by the PC (TUNNEL_JSON_URL); each request is
 // passed on with RELAY_SECRET, which the PC requires.
+import crypto from 'node:crypto';
 import { authed } from './_auth.js';
 
 let cached = { url: null, at: 0 };
@@ -11,6 +12,16 @@ async function tunnel(fresh) {
   const j = await r.json();
   cached = { url: j.url, at: Date.now() };
   return j.url;
+}
+
+// The state the Jarvis PC saves every 30 seconds (iv | encrypted | tag, AES-256-GCM, key from RELAY_SECRET).
+async function lastSaved() {
+  const url = String(process.env.TUNNEL_JSON_URL).replace(/tunnel\.json$/, 'state.bin');
+  const buf = Buffer.from(await (await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' })).arrayBuffer());
+  const key = crypto.createHash('sha256').update(process.env.RELAY_SECRET || '').digest();
+  const d = crypto.createDecipheriv('aes-256-gcm', key, buf.subarray(0, 12));
+  d.setAuthTag(buf.subarray(buf.length - 16));
+  return JSON.parse(Buffer.concat([d.update(buf.subarray(12, buf.length - 16)), d.final()]).toString('utf8'));
 }
 
 export default async function handler(req, res) {
@@ -27,7 +38,15 @@ export default async function handler(req, res) {
   for (const fresh of [false, true]) {
     try { r = await fetch(`${await tunnel(fresh)}${p}${qs ? '?' + qs : ''}`, init); break; } catch (err) { r = null; }
   }
-  if (!r) return res.status(502).json({ error: 'The Jarvis computer in the office is not reachable' });
+  // The Jarvis PC is off or unreachable: the dashboard shows the last figures it saved.
+  if (!r || (r.status >= 500 && !String(r.headers.get('content-type') || '').includes('json'))) {
+    if (p === '/api/state') {
+      const saved = await lastSaved().catch(() => null);
+      if (saved) return res.status(200).json({ ...saved, stale: true });
+    }
+    if (p === '/api/commands') return res.status(200).json({ last: 0, commands: [], live: null });
+    return res.status(502).json({ error: 'The Jarvis computer in the office is not reachable' });
+  }
   res.status(r.status);
   for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) { const v = r.headers.get(h); if (v) res.setHeader(h, v); }
   if (!r.body) return res.end();

@@ -78,6 +78,8 @@ def main():
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
     demos = json.load(sys.stdin)
+    # Innolink pages are never opened: every visit counts as an open on the client's stats.
+    demos = [d for d in demos if 'innolink.info' not in str(d.get('url', '')).lower()]
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='msedge')
         for d in demos:

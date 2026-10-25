@@ -154,6 +154,8 @@ def shoot(ctx, s, out):
 def main():
     out = sys.argv[1]
     sites = json.load(sys.stdin)
+    # Innolink pages are never opened: every visit counts as an open on the client's stats.
+    sites = [d for d in sites if 'innolink.info' not in str(d.get('url', '')).lower()]
     os.makedirs(out, exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='msedge')

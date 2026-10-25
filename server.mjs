@@ -498,9 +498,7 @@ async function pingSite(url) {
 async function refreshSites() {
   // Innolink pages aren't checked: every visit counts as an "open" on the
   // client's Innolink stats, and a check every 5 minutes inflated them.
-  const innolink = (u) => /(^|\.)innolink\.info\b/.test(String(u).replace(/^https?:\/\//, ''));
-  for (const s of state.board?.sites || []) if (innolink(s.url)) state.sites[s.url] = { ok: true, status: 200, ms: null, skipped: true };
-  const sites = (state.board?.sites || []).filter(s => !innolink(s.url));
+  const sites = (state.board?.sites || []).filter(s => !isInnolink(s.url));
   const results = await Promise.all(sites.map(s => pingSite(s.url).then(r => [s, r])));
   // A site that didn't answer gets a second try 20 seconds later.
   if (results.some(([, r]) => !r.ok)) {
@@ -557,11 +555,14 @@ function loadShots() {
 // and the TV plays the films. New demos are filmed as they appear.
 const FILMS = path.join(PUBLIC, 'demos');
 let filming = false, filmQueued = false;
+// Innolink pages are never opened by Jarvis (checked, filmed or shown): every
+// visit counts as an open on the client's stats.
+const isInnolink = (u) => /(^|\.)innolink\.info\b/i.test(String(u || '').replace(/^https?:\/\//, ''));
 function demoList() {
   const seen = new Set(), list = [];
   for (const d of [...(state.board?.sites || []), ...((state.leads.ok && state.leads.demos) || [])]) {
     const url = d.url.replace(/\/$/, '');
-    if (seen.has(url)) continue;
+    if (seen.has(url) || isInnolink(url)) continue;
     seen.add(url);
     const slug = slugOf(url), file = path.join(FILMS, slug + '.webm');
     let film = null;
@@ -711,7 +712,7 @@ function startTunnel() {
 
 function shootSites(onlyMissing) {
   if (shooting) return;
-  const sites = (state.board?.sites || []).filter(s => !onlyMissing || !state.shots[s.url]);
+  const sites = (state.board?.sites || []).filter(s => !isInnolink(s.url) && (!onlyMissing || !state.shots[s.url]));
   if (!sites.length) return;
   shooting = true;
   const py = spawn(env.PYTHON || 'python', ['-I', path.join(ROOT, 'scripts', 'shoot.py'), SHOTS], { windowsHide: true });
@@ -1441,6 +1442,27 @@ function speakToFile(c) {
 
 startTtsWorker();
 warmClaude();
+
+// The numbers stay up on the live site while this computer is off: every 30
+// seconds the dashboard's state is saved next to the tunnel address, encrypted
+// with RELAY_SECRET (only the live site can read it), and the live site shows
+// it, marked as the last saved figures, whenever this computer doesn't answer.
+async function saveSnapshot() {
+  if (!RELAY_SECRET || !INNOLINK.service) return;
+  const st = publicState();
+  st.whatsapp = { ...st.whatsapp, qr: null };
+  const json = Buffer.from(JSON.stringify({ ...st, savedAt: new Date().toISOString() }));
+  const key = crypto.createHash('sha256').update(RELAY_SECRET).digest();
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const body = Buffer.concat([iv, c.update(json), c.final(), c.getAuthTag()]);
+  const res = await fetch(`${INNOLINK.url}/storage/v1/object/jarvis-public/state.bin`, {
+    method: 'POST', body, signal: AbortSignal.timeout(20000),
+    headers: { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}`, 'Content-Type': 'application/octet-stream', 'x-upsert': 'true', 'cache-control': 'max-age=0' },
+  });
+  if (!res.ok) throw new Error(`snapshot ${res.status}`);
+}
+setTimeout(() => every(30_000, () => saveSnapshot().catch(err => console.error('snapshot:', err.message))), 60_000);
 
 function every(ms, fn) { const run = () => Promise.resolve(fn()).catch(err => console.error(err)); run(); return setInterval(run, ms); }
 

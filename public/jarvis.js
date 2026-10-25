@@ -256,6 +256,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const h = S.sites && S.sites[site.url];
       if (h && !h.ok) down.push(`${site.name} is down`);
     }
+    if (S.stale && S.savedAt) down.unshift("the Jarvis computer is off, figures from " + new Date(S.savedAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" }));
     showOffline(down);
     rotator.sync();
     if ($("wa-view").className.indexOf("show") >= 0) showWhatsApp(true);
