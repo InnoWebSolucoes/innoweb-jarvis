@@ -712,7 +712,8 @@ function answer(panel) {
       if (!l.ok) return 'I cannot read the lead finder right now.';
       const tr = l.tracker || {};
       const doing = !tr.online ? 'The Mac running it is not reporting.' : tr.queuePaused || tr.buildPaused ? `It is stuck: ${tr.queuePaused || tr.buildPaused}` : tr.building?.length ? `It is building ${tr.building.length} websites.` : tr.finder ? `Right now: ${tr.finder}.` : '';
-      return `Today: ${l.sitesSentToday} websites sent, ${l.whatsappToday} WhatsApps and ${l.leadsToday} new leads, ${l.repliesToday} replies. ${doing}`;
+      const bySender = (l.senders || []).filter(x => x.today).map(x => `${x.today} from ${x.label}`).join(', ');
+      return `Today: ${l.whatsappToday} WhatsApps${bySender ? ` (${bySender})` : ''}, ${l.emailsToday} emails, ${l.leadsToday} new leads and ${l.repliesToday} replies. ${doing}`;
     }
     case 'link': {
       const i = state.innolink;
@@ -739,7 +740,7 @@ function briefing() {
 function overview() {
   const a = state.board?.achievements || {}, l = state.leads, f = state.flowdesk;
   const parts = [`We're at ${eur(a.revenue)} of ${eur(a.revenueGoal)}.`];
-  if (l.ok) parts.push(`Today the lead finder sent ${l.sitesSentToday} websites and ${l.whatsappToday} WhatsApps, and found ${l.leadsToday} new leads.`);
+  if (l.ok) parts.push(`Today the lead finder sent ${l.whatsappToday} WhatsApps and ${l.emailsToday} emails, and found ${l.leadsToday} new leads.`);
   if (l.ok && l.pipeline) parts.push(l.pipeline.replied ? `${l.pipeline.replied} of the ${l.pipeline.sent} businesses we contacted have replied.` : `None of the ${l.pipeline.sent} businesses we contacted have replied yet.`);
   if (f.ok) parts.push(f.people.map(p => p.status === 'working' ? `${p.name.split(' ')[0]} is on ${p.working[0]}` : p.status === 'todo' ? `${p.name.split(' ')[0]} hasn't started ${p.dueToday[0]}` : `${p.name.split(' ')[0]} is done for today`).join(', ') + '.');
   if (f.ok && f.todo) parts.push(`${f.todo.open.length} things on the to-do list.`);
@@ -907,7 +908,7 @@ function snapshot() {
     today: localDate(new Date()),
     claudeUsage: state.tokens.map(t => ({ account: t.account, sessionPercent: t.used, weekPercent: t.week, sessionResets: t.note })),
     adminTodoList: f.ok ? f.todo : 'not connected',
-    leadFinder: l.ok ? { pipeline: l.pipeline, today: { websitesSent: l.sitesSentToday, whatsapps: l.whatsappToday, newLeads: l.leadsToday, replies: l.repliesToday, sitesBuilt: l.builtToday, emails: l.emailsToday }, allTime: { leads: l.leads, demoSitesBuilt: l.built, websitesSent: l.sitesSent, emailsSent: l.emailsSent, whatsappsSent: l.whatsappSent, replies: l.replies }, rightNow: l.tracker } : 'not readable',
+    leadFinder: l.ok ? { pipeline: l.pipeline, today: { whatsapps: l.whatsappToday, emails: l.emailsToday, whatsappsByNumber: (l.senders || []).map(x => ({ number: x.label, linked: x.linked, sentToday: x.today, sentInAll: x.total })), newLeads: l.leadsToday, replies: l.repliesToday, sitesBuilt: l.builtToday, emails: l.emailsToday }, allTime: { leads: l.leads, demoSitesBuilt: l.built, websitesSent: l.sitesSent, emailsSent: l.emailsSent, whatsappsSent: l.whatsappSent, replies: l.replies }, rightNow: l.tracker } : 'not readable',
     flowdesk: f.ok ? { doneToday: f.doneToday, doneThisWeek: f.doneWeek, inProgress: f.inProgress, people: f.people.map(p => ({ name: p.name, status: p.status, doneToday: p.done, doneThisWeek: p.week, workingOnNow: p.working, stillDueToday: p.dueToday, lastDone: p.lastDone })) } : 'not connected',
     innolink: i.ok ? { opens: i.views, clicks: i.clicks, pages: i.clients.map(c => ({ name: c.name, opens: c.views, clicks: c.clicks })) } : 'not connected',
     sites: (state.board?.sites || []).map(s => ({ name: s.name, url: s.url, up: state.sites[s.url]?.ok ?? null })),

@@ -448,3 +448,23 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 
 /* WhatsApp: the real screen from the Jarvis PC, filling the monitor. */
 #wa-screen { display: none; flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #0b141a; }
+
+/* Lead finder: each WhatsApp number's sends today, red when it isn't linked. */
+.lf-senders { display: flex; flex: none; margin-top: 12px; }
+.lf-senders div { -webkit-box-flex: 1; flex: 1; min-width: 0; margin-right: 6px; padding: 6px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.lf-senders div:last-child { margin-right: 0; }
+.lf-senders span { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-senders b { display: block; font-size: 19px; font-weight: 800; line-height: 1.15; color: #e2e8f0; }
+.lf-senders .off { background: rgba(239, 68, 68, 0.14); }
+.lf-senders .off span, .lf-senders .off b { color: #fca5a5; }
+.lf-big div:first-child b { color: var(--blue-light); }
+
+/* Room for the WhatsApp numbers and the week: a tighter lead finder panel. */
+#p-lead .lf-big b { font-size: 38px; }
+#p-lead .lf-big > div > span { margin-top: 3px; }
+#p-lead .tracker { margin-bottom: 10px; }
+.lf-senders { margin-top: 9px; }
+.lf-senders div { padding: 4px 7px; }
+#p-lead .lf-small { margin-top: 9px; }
+#p-lead .week-head { margin-top: 8px; }
+#p-lead .week { padding-top: 18px; }

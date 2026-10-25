@@ -24,6 +24,9 @@ import psycopg
 
 # "Today" is the office's calendar day, in UK time, wherever this runs.
 OFFICE = ZoneInfo('Europe/London')
+# Only leads in projects that aren't archived count (the Porto pilots are archived).
+ACTIVE = "(SELECT l.id FROM leads l JOIN projects p ON p.id = l.project_id WHERE p.archived_at IS NULL)"
+ACTIVE_PROJECTS = "(SELECT id FROM projects WHERE archived_at IS NULL)"
 
 
 def setting(rows, key):
@@ -88,7 +91,7 @@ LEAD_VIEW = """
     max(CASE WHEN key = 'interested_at' AND coalesce(value, '') <> '' THEN 1 END) AS interested,
     max(CASE WHEN key = 'uk_told_tomorrow' AND coalesce(value, '') <> '' THEN 1 END) AS told,
     max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date
-  FROM lead_values GROUP BY lead_id"""
+  FROM lead_values WHERE lead_id IN """ + ACTIVE + """ GROUP BY lead_id"""
 
 
 def said_of(value):
@@ -127,6 +130,7 @@ def pipeline(rows):
     sent, replied, auto, answered, follow, won, said_no = rows(stage_sql)[0]
     latest = rows("""SELECT l.name, v.key, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
                      WHERE v.key IN ('whatsapp_reply', 'uk_last_reply', 'uk_autoreply', 'whatsapp_autoreply') AND coalesce(v.value, '') <> ''
+                       AND v.lead_id IN """ + ACTIVE + """
                      ORDER BY (v.key IN ('uk_autoreply', 'whatsapp_autoreply')), v.updated_at DESC LIMIT 6""")
     replies = []
     for name, key, value, at in latest:
@@ -137,16 +141,35 @@ def pipeline(rows):
 
 
 def week(rows):
-    """The last seven days, day by day: websites sent, WhatsApps, new leads."""
-    days = [(datetime.now().astimezone() - timedelta(days=d)).date().isoformat() for d in range(6, -1, -1)]
-    day = "to_char((%s::timestamptz AT TIME ZONE 'Europe/Lisbon'), 'YYYY-MM-DD')"
-    sent = dict(rows(f"""SELECT {day % 'updated_at'}, count(DISTINCT lead_id) FROM lead_values
-                         WHERE updated_at >= %s AND ((key = 'call_result' AND value = 'Emailed') OR (key = 'whatsapp_status' AND value LIKE 'sent %%'))
-                         GROUP BY 1""", days[0]))
+    """The last seven days, day by day: WhatsApps, emails, new leads (active projects)."""
+    days = [(datetime.now(OFFICE) - timedelta(days=d)).date().isoformat() for d in range(6, -1, -1)]
+    day = "to_char((%s::timestamptz AT TIME ZONE 'Europe/London'), 'YYYY-MM-DD')"
+    emails = dict(rows(f"""SELECT {day % 'updated_at'}, count(*) FROM lead_values
+                         WHERE updated_at >= %s AND key = 'call_result' AND value = 'Emailed' AND lead_id IN {ACTIVE} GROUP BY 1""", days[0]))
     wa = dict(rows(f"""SELECT {day % 'updated_at'}, count(*) FROM lead_values
-                       WHERE updated_at >= %s AND key = 'whatsapp_status' AND value LIKE 'sent %%' GROUP BY 1""", days[0]))
-    new = dict(rows(f"SELECT {day % 'created_at'}, count(*) FROM leads WHERE created_at >= %s GROUP BY 1", days[0]))
-    return [{'date': d, 'sent': sent.get(d, 0), 'whatsapps': wa.get(d, 0), 'leads': new.get(d, 0)} for d in days]
+                       WHERE updated_at >= %s AND key = 'whatsapp_status' AND value LIKE 'sent %%' AND lead_id IN {ACTIVE} GROUP BY 1""", days[0]))
+    new = dict(rows(f"SELECT {day % 'created_at'}, count(*) FROM leads WHERE created_at >= %s AND project_id IN {ACTIVE_PROJECTS} GROUP BY 1", days[0]))
+    return [{'date': d, 'emails': emails.get(d, 0), 'whatsapps': wa.get(d, 0), 'leads': new.get(d, 0)} for d in days]
+
+
+def senders(rows, setting_value, midnight):
+    """Each WhatsApp number the finder sends from: whether it's linked, and how
+    many it has sent today and in all. A sent WhatsApp is recorded as
+    "sent 25 Oct 11:35 from Personal 2" (sometimes with a note in brackets)."""
+    counts = {}
+    for label, today, total in rows("""SELECT trim(regexp_replace(substring(value from ' from (.*)$'), '\\s*\\(.*$', '')) AS label,
+                                         count(*) FILTER (WHERE updated_at >= %s), count(*)
+                                  FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' GROUP BY 1""", midnight):
+        if label:
+            counts[label.lower()] = (today, total)
+    out = []
+    for s in setting_value or []:
+        label = s.get('label') or s.get('id')
+        today, total = counts.pop(str(label).lower(), (0, 0))
+        out.append({'id': s.get('id'), 'label': label, 'linked': s.get('status') == 'linked', 'status': s.get('status'), 'today': today, 'total': total})
+    for label, (today, total) in counts.items():   # a number no longer in the list but still sent from
+        out.append({'id': label, 'label': label.title(), 'linked': None, 'status': 'not in the list', 'today': today, 'total': total})
+    return out
 
 
 def collect(url):
@@ -161,25 +184,21 @@ def collect(url):
         one = lambda sql, *a: c.execute(sql, a or None).fetchone()[0]
         rows = lambda sql, *a: c.execute(sql, a or None).fetchall()
 
-        sent_sql = """SELECT DISTINCT lead_id FROM lead_values WHERE (key = 'call_result' AND value IN ('Emailed', 'Messaged'))
-                      OR (key = 'whatsapp_status' AND value LIKE 'sent %')"""
+        A = ACTIVE
         out = {
             'ok': True,
-            'leads': one('SELECT count(*) FROM leads'),
-            'built': one("SELECT count(*) FROM builds WHERE status = 'built'"),
-            'emailsSent': one("SELECT count(*) FROM lead_values WHERE key = 'call_result' AND value = 'Emailed'"),
-            'whatsappSent': one("SELECT count(*) FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %'"),
-            'sitesSent': one(f'SELECT count(*) FROM ({sent_sql}) s'),
-            'meetings': one("SELECT count(*) FROM lead_values WHERE key = 'call_result' AND lower(value) LIKE 'meeting%'"),
-            'notInterested': one("SELECT count(*) FROM lead_values WHERE key = 'call_result' AND lower(value) = 'not interested'"),
-            'leadsToday': one('SELECT count(*) FROM leads WHERE created_at >= %s', midnight),
-            'builtToday': one("SELECT count(*) FROM builds WHERE status = 'built' AND finished_at >= %s", midnight),
-            'whatsappToday': one("SELECT count(*) FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' AND updated_at >= %s", midnight),
-            'emailsToday': one("SELECT count(*) FROM lead_values WHERE key = 'call_result' AND value = 'Emailed' AND updated_at >= %s", midnight),
-            'sitesSentToday': one("""SELECT count(DISTINCT lead_id) FROM lead_values WHERE updated_at >= %s AND
-                                   ((key = 'call_result' AND value IN ('Emailed', 'Messaged')) OR (key = 'whatsapp_status' AND value LIKE 'sent %%'))""", midnight),
-            'replies': one("SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> ''"),
-            'repliesToday': one("SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' AND updated_at >= %s", midnight),
+            'leads': one(f'SELECT count(*) FROM leads WHERE project_id IN {ACTIVE_PROJECTS}'),
+            'built': one(f"SELECT count(*) FROM builds WHERE status = 'built' AND lead_id IN {A}"),
+            'emailsSent': one(f"SELECT count(*) FROM lead_values WHERE key = 'call_result' AND value = 'Emailed' AND lead_id IN {A}"),
+            'whatsappSent': one(f"SELECT count(*) FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' AND lead_id IN {A}"),
+            'meetings': one(f"SELECT count(*) FROM lead_values WHERE key = 'call_result' AND lower(value) LIKE 'meeting%%' AND lead_id IN {A}"),
+            'notInterested': one(f"SELECT count(*) FROM lead_values WHERE key = 'call_result' AND lower(value) = 'not interested' AND lead_id IN {A}"),
+            'leadsToday': one(f'SELECT count(*) FROM leads WHERE created_at >= %s AND project_id IN {ACTIVE_PROJECTS}', midnight),
+            'builtToday': one(f"SELECT count(*) FROM builds WHERE status = 'built' AND finished_at >= %s AND lead_id IN {A}", midnight),
+            'whatsappToday': one(f"SELECT count(*) FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' AND updated_at >= %s AND lead_id IN {A}", midnight),
+            'emailsToday': one(f"SELECT count(*) FROM lead_values WHERE key = 'call_result' AND value = 'Emailed' AND updated_at >= %s AND lead_id IN {A}", midnight),
+            'replies': one(f"SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' AND lead_id IN {A}"),
+            'repliesToday': one(f"SELECT count(DISTINCT lead_id) FROM lead_values WHERE key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' AND updated_at >= %s AND lead_id IN {A}", midnight),
             'tracker': None,
             'run': None,
             'usage': {},
@@ -231,6 +250,7 @@ def collect(url):
         out['tracker'] = tracker(rows)
         out['pipeline'] = pipeline(rows)
         out['week'] = week(rows)
+        out['senders'] = senders(rows, setting(rows, 'wa_senders'), midnight)
         # Every demo site the finder has built and put live, newest first.
         out['demos'] = [{'name': n, 'url': u} for u, n in rows("""SELECT b.live_url, l.name FROM builds b JOIN leads l ON l.id = b.lead_id
                          WHERE b.status = 'built' AND coalesce(b.live_url, '') <> '' ORDER BY b.finished_at DESC""")]

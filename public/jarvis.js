@@ -205,8 +205,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     }
     const lf = S.leads || {};
     if (lf.ok) {
-      roll($("lf-sent"), lf.sitesSentToday);
       roll($("lf-wa"), lf.whatsappToday);
+      roll($("lf-email"), lf.emailsToday);
+      $("lf-senders").innerHTML = (lf.senders || []).map((x) => `<div class="${x.linked === false ? "off" : ""}"><span>${esc(String(x.label).replace(/^RAFA PERSONAL$/i, "Rafa").replace(/^Personal\s*/i, "Pers "))}</span><b>${num(x.today)}</b></div>`).join("");
       roll($("lf-new"), lf.leadsToday);
       const tr = lf.tracker || {};
       const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
@@ -956,7 +957,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       case "team":
         return ((_d = S.flowdesk) == null ? void 0 : _d.ok) ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : "FlowDesk not connected";
       case "lead":
-        return ((_e = S.leads) == null ? void 0 : _e.ok) ? `${num(S.leads.sitesSentToday)} sites sent, ${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.leadsToday)} new leads today` : "";
+        return ((_e = S.leads) == null ? void 0 : _e.ok) ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : "";
       case "link":
         return ((_f = S.innolink) == null ? void 0 : _f.ok) ? `${num(S.innolink.views)} opens, ${num(S.innolink.clicks)} clicks on ${S.innolink.clients.length} pages` : `${(((_g = S.board) == null ? void 0 : _g.innolinkClients) || []).length} Innolink pages`;
       case "log": {

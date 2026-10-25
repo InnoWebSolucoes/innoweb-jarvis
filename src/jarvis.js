@@ -191,8 +191,10 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     // Lead finder
     const lf = S.leads || {};
     if (lf.ok) {
-      roll($('lf-sent'), lf.sitesSentToday);
       roll($('lf-wa'), lf.whatsappToday);
+      roll($('lf-email'), lf.emailsToday);
+      // Each WhatsApp number: sent today; red when it isn't linked.
+      $('lf-senders').innerHTML = (lf.senders || []).map((x) => `<div class="${x.linked === false ? 'off' : ''}"><span>${esc(String(x.label).replace(/^RAFA PERSONAL$/i, 'Rafa').replace(/^Personal\s*/i, 'Pers '))}</span><b>${num(x.today)}</b></div>`).join('');
       roll($('lf-new'), lf.leadsToday);
       const tr = lf.tracker || {};
       const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
@@ -866,7 +868,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       case 'site': { const c = rotator.current(); const h = c && S.sites?.[c.url]; return c ? `${c.name} ${h ? (h.ok ? `answers in ${h.ms} ms` : 'is not answering') : 'online'}` : ''; }
       case 'meta': { const t = (S.tokens || []).filter((x) => x.used != null); return t.length ? t.map((x) => `${x.account} ${Math.round(x.used)}%`).join(', ') : 'Claude usage'; }
       case 'team': return S.flowdesk?.ok ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : 'FlowDesk not connected';
-      case 'lead': return S.leads?.ok ? `${num(S.leads.sitesSentToday)} sites sent, ${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.leadsToday)} new leads today` : '';
+      case 'lead': return S.leads?.ok ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : '';
       case 'link': return S.innolink?.ok ? `${num(S.innolink.views)} opens, ${num(S.innolink.clicks)} clicks on ${S.innolink.clients.length} pages` : `${(S.board?.innolinkClients || []).length} Innolink pages`;
       case 'log': { const errs = (S.events || []).filter((e) => e.level === 'error' && Date.now() - Date.parse(e.at) < 864e5).length; return errs ? `${errs} alert${errs > 1 ? 's' : ''} in the last 24 hours` : 'No alerts in the last 24 hours'; }
     }
