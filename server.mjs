@@ -697,7 +697,7 @@ function answer(panel) {
       const pl = state.leads.pipeline;
       if (!pl) return 'I am still reading the pipeline.';
       const pc = (x, y) => (y ? Math.round((x / y) * 100) : 0);
-      return `${pl.sent} businesses contacted, ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent. We answered ${pl.answered}, ${pl.followUp} have a follow-up and ${pl.won} are won.`;
+      return `${pl.sent} businesses contacted. ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent: ${pl.yes} said yes, ${pl.saidNo} said no and ${pl.waitingOnUs} are waiting on us. ${pl.autoReplied} only sent an automatic reply. ${pl.followUp} of the yeses have been followed up, and ${pl.won} are won.`;
     }
     case 'cd': {
       let left = Math.max(0, new Date(b.countdown?.target) - Date.now());
@@ -921,7 +921,7 @@ How to answer: the first line is a JSON object with what to do on the TV, then a
 {"action":"show_site","site":"https://innoweb.agency/fada-madrinha"}
 {"action":"add_task","assignee":"Adilson","task":"Redo the Okulya flyers","due":"2026-10-24"}
 
-Panels: ach (the money goal and the admin to-do list), pipe (the pipeline: contacted, replied, we answered, follow-up, won, and the latest replies), site (our work), meta (Claude usage of our accounts), team (FlowDesk employees), cd (countdown), lead (lead finder: what it is doing and today's websites sent, WhatsApps and new leads), link (Innolink pages), log (live log).`;
+Panels: ach (the money goal and the admin to-do list), pipe (the pipeline: contacted; replied, automatic reply only, no reply yet; of the replies yes, no, waiting on us; of the yeses followed up; won; and the latest replies), site (our work), meta (Claude usage of our accounts), team (FlowDesk employees), cd (countdown), lead (lead finder: what it is doing and today's websites sent, WhatsApps and new leads), link (Innolink pages), log (live log).`;
 
 const recent = [];  // the last few exchanges, for follow-up questions
 function snapshot() {

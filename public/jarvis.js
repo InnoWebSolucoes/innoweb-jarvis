@@ -270,22 +270,21 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   function drawPipeline(pl) {
     const box = $("funnel"), W2 = box.offsetWidth || 400, H2 = box.offsetHeight || 210;
     const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
-    const sent = pl.sent || 0, replied = pl.replied || 0, answered = pl.answered || 0, follow = pl.followUp || 0, won = pl.won || 0;
-    const auto = pl.autoReplied || 0;
-    const no = Math.min(pl.saidNo || 0, Math.max(0, replied - answered));
+    const sent = pl.sent || 0, replied = pl.replied || 0, auto = pl.autoReplied || 0;
+    const yes = pl.yes || 0, no = pl.saidNo || 0, waiting = pl.waitingOnUs || 0, follow = pl.followUp || 0, won = pl.won || 0;
     const nodes = {
       sent: { n: sent, label: "Contacted", color: "#94a3b8" },
       replied: { n: replied, label: "Replied", color: "#3b82f6" },
       auto: { n: auto, label: "Auto reply", color: "#64748b" },
-      silent: { n: Math.max(0, sent - replied - auto), label: "No reply yet", color: "#f87171" },
-      answered: { n: answered, label: "We answered", color: "#8b5cf6" },
-      waiting: { n: Math.max(0, replied - answered - no), label: "Waiting on us", color: "#fb923c" },
+      silent: { n: Math.max(0, sent - replied - auto), label: "No reply yet", color: "#475569" },
+      yes: { n: yes, label: "Said yes", color: "#34d399" },
+      waiting: { n: waiting, label: "Waiting on us", color: "#fb923c" },
       no: { n: no, label: "Said no", color: "#f87171" },
-      follow: { n: follow, label: "Follow-up", color: "#38bdf8" },
-      won: { n: won, label: "Won", color: "#34d399" }
+      follow: { n: follow, label: "Followed up", color: "#38bdf8" },
+      won: { n: won, label: "Won", color: "#facc15" }
     };
-    const links = [["sent", "replied"], ["sent", "auto"], ["sent", "silent"], ["replied", "answered"], ["replied", "waiting"], ["replied", "no"], ["answered", "follow"], ["follow", "won"]];
-    const cols = [["sent"], ["replied", "auto", "silent"], ["answered", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
+    const links = [["sent", "replied"], ["sent", "auto"], ["sent", "silent"], ["replied", "yes"], ["replied", "waiting"], ["replied", "no"], ["yes", "follow"], ["follow", "won"]];
+    const cols = [["sent"], ["replied", "auto", "silent"], ["yes", "waiting", "no"], ["follow"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
     const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     const ox = Math.max(0, Math.round((W2 - ((cols.length - 1) * step + NODE + LABEL)) / 2));
@@ -320,7 +319,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       text += `<div class="sk${nd.n ? "" : " none"}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
     }
     box.innerHTML = `<svg width="${W2}" height="${H2}" viewBox="0 0 ${W2} ${H2}">${paths}</svg><div class="sk-labels">${text}</div>`;
-    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><b>${esc(r.name)}</b>${r.interested ? '<i class="hot">interested</i>' : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
+    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><b>${esc(r.name)}</b>${r.kind === "yes" ? '<i class="hot">said yes</i>' : r.kind === "no" ? '<i class="no">said no</i>' : r.kind === "question" ? "<i>waiting on us</i>" : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
   function compact(n) {
     if (n == null) return "\u2014";

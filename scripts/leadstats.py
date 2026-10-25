@@ -112,7 +112,9 @@ LEAD_VIEW = """
     max(CASE WHEN key IN ('uk_autoreply', 'whatsapp_autoreply') AND coalesce(value, '') <> '' THEN updated_at END) AS auto_at,
     max(CASE WHEN key = 'interested_at' AND coalesce(value, '') <> '' THEN 1 END) AS interested,
     max(CASE WHEN key = 'uk_told_tomorrow' AND coalesce(value, '') <> '' THEN 1 END) AS told,
-    max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date
+    max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date,
+    max(CASE WHEN key = 'uk_last_reply' THEN lower(substring(value from '[(]([A-Za-z ]+)[)]:')) END) AS reply_kind,
+    max(CASE WHEN key = 'uk_status' THEN value END) AS uk_state
   FROM lead_values WHERE lead_id IN """ + ACTIVE + """ GROUP BY lead_id"""
 
 
@@ -134,32 +136,48 @@ def said_of(value):
 
 
 def pipeline(rows):
-    """Where every contacted lead has got to: they replied (or only an automatic
-    reply came back), we answered, follow-up (interested, a callback, a meeting),
-    won. With the latest replies themselves, by name."""
+    """Where every contacted lead has got to, so each stage adds up to the one
+    before it:
+      contacted = replied + automatic reply only + no reply yet
+      replied   = yes + no + waiting on us   (the finder labels each reply:
+                  "(interested)", "(stop)", "(question)"; a no can also be a
+                  "do not contact" status or a "Not interested" result)
+      yes       -> followed up (we answered: told them tomorrow, a callback,
+                  a meeting or proposal) -> won
+    With the latest replies themselves, by name."""
     stage_sql = f"""
       WITH v AS ({LEAD_VIEW}),
-      c AS (SELECT * FROM v WHERE {CONTACTED} OR reply_at IS NOT NULL OR auto_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')
-                                  OR (status = 'Not interested' AND status_at > '2026-10-20'))
+      c AS (SELECT *,
+              coalesce(reply_at IS NOT NULL OR interested = 1 OR uk_state = 'do not contact'
+               OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested'), false) AS real_reply,
+              coalesce(interested = 1 OR reply_kind = 'interested' OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won'), false) AS said_yes
+            FROM v WHERE {CONTACTED} OR reply_at IS NOT NULL OR auto_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')
+                                     OR (status = 'Not interested' AND status_at > '2026-10-20')),
+      d AS (SELECT *, coalesce(real_reply AND NOT said_yes AND (reply_kind IN ('stop', 'not interested', 'no') OR uk_state = 'do not contact' OR status = 'Not interested'), false) AS said_no FROM c)
       SELECT count(*),
-        count(*) FILTER (WHERE reply_at IS NOT NULL OR interested = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested')),
-        count(*) FILTER (WHERE auto_at IS NOT NULL AND reply_at IS NULL AND interested IS NULL AND coalesce(status, '') NOT IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested')),
-        count(*) FILTER (WHERE told = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won') OR (reply_at IS NOT NULL AND status_at > reply_at)),
-        count(*) FILTER (WHERE interested = 1 OR follow_date = 1 OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')),
-        count(*) FILTER (WHERE status = 'Won'),
-        count(*) FILTER (WHERE status = 'Not interested')
-      FROM c"""
-    sent, replied, auto, answered, follow, won, said_no = rows(stage_sql)[0]
+        count(*) FILTER (WHERE real_reply),
+        count(*) FILTER (WHERE said_yes),
+        count(*) FILTER (WHERE said_no),
+        count(*) FILTER (WHERE real_reply AND NOT said_yes AND NOT said_no),
+        count(*) FILTER (WHERE auto_at IS NOT NULL AND NOT real_reply),
+        count(*) FILTER (WHERE said_yes AND coalesce(told = 1 OR follow_date = 1 OR status IN ('Meeting set', 'Proposal sent', 'Won'), false)),
+        count(*) FILTER (WHERE status = 'Won')
+      FROM d"""
+    sent, replied, yes, no, waiting, auto, followed, won = rows(stage_sql)[0]
     latest = rows("""SELECT l.name, v.key, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
                      WHERE v.key IN ('whatsapp_reply', 'uk_last_reply', 'uk_autoreply', 'whatsapp_autoreply') AND coalesce(v.value, '') <> ''
+                       AND NOT (v.key IN ('uk_autoreply', 'whatsapp_autoreply') AND EXISTS (SELECT 1 FROM lead_values r WHERE r.lead_id = v.lead_id AND r.key = 'uk_last_reply' AND coalesce(r.value, '') <> ''))
                        AND v.lead_id IN """ + ACTIVE + """
                      ORDER BY (v.key IN ('uk_autoreply', 'whatsapp_autoreply')), v.updated_at DESC LIMIT 6""")
     replies = []
     for name, key, value, at in latest:
         said = said_of(value)
         is_auto = 'autoreply' in key or any(k in said.lower() for k in AUTO_REPLY)
-        replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto, 'interested': '(interested)' in str(value)[:40]})
-    return {'sent': sent, 'replied': replied, 'autoReplied': auto, 'answered': answered, 'followUp': follow, 'won': won, 'saidNo': said_no, 'replies': replies}
+        head = str(value)[:40].lower()
+        kind = 'yes' if '(interested)' in head else 'no' if '(stop)' in head else 'question' if '(question)' in head else ''
+        replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto and not kind, 'interested': kind == 'yes', 'kind': kind})
+    return {'sent': sent, 'replied': replied, 'yes': yes, 'saidNo': no, 'waitingOnUs': waiting, 'autoReplied': auto,
+            'followUp': followed, 'won': won, 'replies': replies}
 
 
 def week(rows):
