@@ -267,23 +267,29 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   function drawPipeline(pl) {
     const box = $('funnel'), W = box.offsetWidth || 400, H = box.offsetHeight || 210;
     const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
-    // Each stage adds up to the one before it: contacted = replied + auto reply
-    // + no reply yet; replied = yes + no + waiting on us; yes -> followed up -> won.
+    // Every lead flows somewhere, and each stage adds up to the one before it:
+    // contacted = replied + auto reply + no reply yet; replied = yes + question
+    // + no; then the yeses are followed up or waiting on us, the questions are
+    // waiting on us; followed up -> won.
     const sent = pl.sent || 0, replied = pl.replied || 0, auto = pl.autoReplied || 0;
-    const yes = pl.yes || 0, no = pl.saidNo || 0, waiting = pl.waitingOnUs || 0, follow = pl.followUp || 0, won = pl.won || 0;
+    const yes = pl.yes || 0, no = pl.saidNo || 0, questions = pl.questions || 0, follow = pl.followUp || 0, won = pl.won || 0;
+    const yesWaiting = Math.max(0, yes - follow);
     const nodes = {
       sent: { n: sent, label: 'Contacted', color: '#94a3b8' },
       replied: { n: replied, label: 'Replied', color: '#3b82f6' },
       auto: { n: auto, label: 'Auto reply', color: '#64748b' },
       silent: { n: Math.max(0, sent - replied - auto), label: 'No reply yet', color: '#475569' },
       yes: { n: yes, label: 'Said yes', color: '#34d399' },
-      waiting: { n: waiting, label: 'Waiting on us', color: '#fb923c' },
+      question: { n: questions, label: 'Asked a question', color: '#a78bfa' },
       no: { n: no, label: 'Said no', color: '#f87171' },
       follow: { n: follow, label: 'Followed up', color: '#38bdf8' },
+      waiting: { n: yesWaiting + questions, label: 'Waiting on us', color: '#fb923c', noPct: true },
       won: { n: won, label: 'Won', color: '#facc15' },
     };
-    const links = [['sent', 'replied'], ['sent', 'auto'], ['sent', 'silent'], ['replied', 'yes'], ['replied', 'waiting'], ['replied', 'no'], ['yes', 'follow'], ['follow', 'won']];
-    const cols = [['sent'], ['replied', 'auto', 'silent'], ['yes', 'waiting', 'no'], ['follow'], ['won']]
+    // [from, to, how many]: "waiting on us" is fed by two stages.
+    const links = [['sent', 'replied', replied], ['sent', 'auto', auto], ['sent', 'silent', nodes.silent.n], ['replied', 'yes', yes], ['replied', 'question', questions], ['replied', 'no', no],
+      ['yes', 'follow', follow], ['yes', 'waiting', yesWaiting], ['question', 'waiting', questions], ['follow', 'won', won]];
+    const cols = [['sent'], ['replied', 'auto', 'silent'], ['yes', 'question', 'no'], ['follow', 'waiting'], ['won']]
       .map((ids) => ids.filter((id) => id === 'sent' || nodes[id].n > 0)).filter((ids) => ids.length);
     const scale = (H - SLOT * 2 - GAP * 2) / Math.max(1, sent);
     // Columns spread over the width; with only one or two stages, they stay a readable distance apart.
@@ -300,9 +306,9 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       });
     });
     let paths = '';
-    for (const [a, b] of links) {
-      const A = nodes[a], B = nodes[b], v = B.n * scale;
-      if (!B.n) continue;
+    for (const [a, b, count] of links) {
+      const A = nodes[a], B = nodes[b], v = count * scale;
+      if (!count || A.x == null || B.x == null) continue;
       const x0 = A.x + NODE, x1 = B.x, ya = A.out, yb = B.in, mx = (x0 + x1) / 2;
       paths += `<path d="M${x0},${ya} C${mx},${ya} ${mx},${yb} ${x1},${yb} L${x1},${yb + v} C${mx},${yb + v} ${mx},${ya + v} ${x0},${ya + v} Z" fill="${B.color}" fill-opacity="0.3"/>`;
       A.out += v; B.in += v;
@@ -312,13 +318,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       if (nodes[id].x == null) continue;   // an empty stage, not drawn
       const nd = nodes[id], parent = links.filter((l) => l[1] === id)[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
-      const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round((nd.n / nodes[parent[0]].n) * 100)}%</i>` : '';
+      const pct = parent && !nd.noPct && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round((nd.n / nodes[parent[0]].n) * 100)}%</i>` : '';
       const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H - SLOT, nd.y + nd.h / 2 - 16));
       text += `<div class="sk${nd.n ? '' : ' none'}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
     }
     box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${paths}</svg><div class="sk-labels">${text}</div>`;
     $('replies').innerHTML = pl.replies.length
-      ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.kind === 'yes' ? '<i class="hot">said yes</i>' : r.kind === 'no' ? '<i class="no">said no</i>' : r.kind === 'question' ? '<i>waiting on us</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
+      ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.kind === 'yes' ? '<i class="hot">said yes</i>' : r.kind === 'no' ? '<i class="no">said no</i>' : r.kind === 'question' ? '<i>asked a question</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
       : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
 

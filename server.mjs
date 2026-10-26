@@ -697,7 +697,7 @@ function answer(panel) {
       const pl = state.leads.pipeline;
       if (!pl) return 'I am still reading the pipeline.';
       const pc = (x, y) => (y ? Math.round((x / y) * 100) : 0);
-      return `${pl.sent} businesses contacted. ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent: ${pl.yes} said yes, ${pl.saidNo} said no and ${pl.waitingOnUs} are waiting on us. ${pl.autoReplied} only sent an automatic reply. ${pl.followUp} of the yeses have been followed up, and ${pl.won} are won.`;
+      return `${pl.sent} businesses contacted. ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent: ${pl.yes} said yes, ${pl.questions} asked a question and ${pl.saidNo} said no. ${pl.autoReplied} only sent an automatic reply. ${pl.followUp} of the yeses are followed up, and ${pl.waitingOnUs} are waiting on us. ${pl.won} won.`;
     }
     case 'cd': {
       let left = Math.max(0, new Date(b.countdown?.target) - Date.now());

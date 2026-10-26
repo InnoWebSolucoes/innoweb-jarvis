@@ -176,8 +176,9 @@ def pipeline(rows):
         head = str(value)[:40].lower()
         kind = 'yes' if '(interested)' in head else 'no' if '(stop)' in head else 'question' if '(question)' in head else ''
         replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto and not kind, 'interested': kind == 'yes', 'kind': kind})
-    return {'sent': sent, 'replied': replied, 'yes': yes, 'saidNo': no, 'waitingOnUs': waiting, 'autoReplied': auto,
-            'followUp': followed, 'won': won, 'replies': replies}
+    # Waiting on us: everyone we owe an answer, the yeses not followed up yet and the questions.
+    return {'sent': sent, 'replied': replied, 'yes': yes, 'saidNo': no, 'questions': waiting, 'autoReplied': auto,
+            'followUp': followed, 'waitingOnUs': (yes - followed) + waiting, 'won': won, 'replies': replies}
 
 
 def week(rows):
