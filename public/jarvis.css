@@ -371,7 +371,12 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 /* Goal: a thick bar that never collapses. */
 .bar { display: block; position: relative; height: 22px; min-height: 22px; -webkit-box-flex: 0; flex: none; border-radius: 11px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .bar-fill { height: 22px; min-width: 22px; border-radius: 11px; }
-.bar-fill.neg { left: auto; right: 0; background: linear-gradient(90deg, #f97316, #ef4444); box-shadow: 0 0 14px rgba(239, 68, 68, 0.8); }
+.bar-fill.neg { width: 0 !important; min-width: 0; opacity: 0; }
+#debt-bar { position: absolute; right: 0; width: 0; height: 22px; z-index: 50; overflow: hidden; opacity: 0; pointer-events: none; border-radius: 11px 0 0 11px;
+  background: linear-gradient(90deg, #ff3b3b, #ef4444 40%, #b91c1c); box-shadow: 0 0 24px rgba(239, 68, 68, 0.9), 0 0 70px rgba(239, 68, 68, 0.45);
+  -webkit-transition: width 2.5s ease-out, opacity 0.4s; transition: width 2.5s ease-out, opacity 0.4s; }
+#debt-bar.on { width: 960px; opacity: 1; }
+#debt-amt { position: absolute; left: 16px; top: 0; line-height: 22px; font-size: 15px; font-weight: 800; color: #fff; white-space: nowrap; }
 
 /* Pipeline: the flow diagram, a little taller. */
 #p-lead { height: 384px; }

@@ -148,6 +148,12 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     $("rev-bar").style.width = (pct * 100).toFixed(2) + "%";
     $("rev-bar").className = "bar-fill" + (neg ? " neg" : "");
     $("rev-pct").textContent = `${(pct * 100).toFixed(pct < 0.1 && pct > 0 ? 1 : 0)}% ${neg ? "below zero" : "of the way"}`;
+    const debt = $("debt-bar");
+    if (neg) {
+      debt.style.top = $("p-ach").offsetTop + $("rev-bar").parentNode.offsetTop + "px";
+      $("debt-amt").textContent = eur(a.revenue);
+    }
+    debt.className = neg ? "on" : "";
     const td = S.flowdesk && S.flowdesk.todo;
     if (td) {
       $("todo-count").textContent = `${td.open.length} open${td.doneToday ? `, ${td.doneToday} done today` : ""}`;
