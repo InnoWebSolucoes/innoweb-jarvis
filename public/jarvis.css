@@ -371,6 +371,7 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 /* Goal: a thick bar that never collapses. */
 .bar { display: block; position: relative; height: 22px; min-height: 22px; -webkit-box-flex: 0; flex: none; border-radius: 11px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .bar-fill { height: 22px; min-width: 22px; border-radius: 11px; }
+.bar-fill.neg { left: auto; right: 0; background: linear-gradient(90deg, #f97316, #ef4444); box-shadow: 0 0 14px rgba(239, 68, 68, 0.8); }
 
 /* Pipeline: the flow diagram, a little taller. */
 #p-lead { height: 384px; }

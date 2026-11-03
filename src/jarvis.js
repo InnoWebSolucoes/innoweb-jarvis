@@ -110,9 +110,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     roll($('rev-now'), a.revenue, eur);
     $('rev-goal').textContent = eur(a.revenueGoal);
     $('rev-goal2').textContent = eur(a.revenueGoal);
-    const pct = a.revenueGoal ? Math.max(0, Math.min(1, (a.revenue || 0) / a.revenueGoal)) : 0;
+    // Below zero the bar wraps round: it fills in red from the right-hand end,
+    // as far as the money is below zero.
+    const neg = (a.revenue || 0) < 0;
+    const pct = a.revenueGoal ? Math.min(1, Math.abs(a.revenue || 0) / a.revenueGoal) : 0;
     $('rev-bar').style.width = (pct * 100).toFixed(2) + '%';
-    $('rev-pct').textContent = `${(pct * 100).toFixed(pct < 0.1 && pct > 0 ? 1 : 0)}% of the way`;
+    $('rev-bar').className = 'bar-fill' + (neg ? ' neg' : '');
+    $('rev-pct').textContent = `${(pct * 100).toFixed(pct < 0.1 && pct > 0 ? 1 : 0)}% ${neg ? 'below zero' : 'of the way'}`;
     // The admin to-do list from FlowDesk
     const td = S.flowdesk && S.flowdesk.todo;
     if (td) {
