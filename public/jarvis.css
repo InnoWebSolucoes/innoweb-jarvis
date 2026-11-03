@@ -449,22 +449,31 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 /* WhatsApp: the real screen from the Jarvis PC, filling the monitor. */
 #wa-screen { display: none; flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #0b141a; }
 
-/* Lead finder: each WhatsApp number's sends today, red when it isn't linked. */
-.lf-senders { display: flex; flex: none; margin-top: 12px; }
-.lf-senders div { -webkit-box-flex: 1; flex: 1; min-width: 0; margin-right: 6px; padding: 6px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
-.lf-senders div:last-child { margin-right: 0; }
-.lf-senders span { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lf-senders b { display: block; font-size: 19px; font-weight: 800; line-height: 1.15; color: #e2e8f0; }
-.lf-senders .off { background: rgba(239, 68, 68, 0.14); }
-.lf-senders .off span, .lf-senders .off b { color: #fca5a5; }
+/* Under the pipeline: each WhatsApp number, what it sent today and in all; logged out in red, first. */
+.pl-senders-head { flex: none; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.pl-senders-head b { color: var(--soft); font-weight: 700; margin-right: 6px; }
+.pl-senders-head em { font-style: normal; font-weight: 700; color: #fca5a5; }
+.pl-senders { display: flex; flex-wrap: wrap; flex: none; margin: 4px -3px 0; }
+.pl-senders div { box-sizing: border-box; width: calc(100% / 7 - 6px); margin: 3px; padding: 5px 9px 6px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
+.pl-senders span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-senders b { font-size: 20px; font-weight: 800; line-height: 1.2; color: #e2e8f0; }
+.pl-senders i { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 6px; }
+.pl-senders .idle b { color: var(--dim); }
+.pl-senders .off { background: rgba(239, 68, 68, 0.16); }
+.pl-senders .off span, .pl-senders .off b, .pl-senders .off i { color: #fca5a5; }
 .lf-big div:first-child b { color: var(--blue-light); }
 
-/* Room for the WhatsApp numbers and the week: a tighter lead finder panel. */
+/* Room for the latest replies and the week: a tighter lead finder panel. */
 #p-lead .lf-big b { font-size: 38px; }
 #p-lead .lf-big > div > span { margin-top: 3px; }
 #p-lead .tracker { margin-bottom: 10px; }
-.lf-senders { margin-top: 9px; }
-.lf-senders div { padding: 4px 7px; }
+/* The lead finder's latest replies: who, what it was, what they said, when. */
+.lf-replies-head { flex: none; margin-top: 10px; font-size: 12px; color: var(--muted); }
+#p-lead .replies { -webkit-box-flex: 0; flex: none; margin-top: 5px; white-space: normal; }
+#p-lead .rp { margin-bottom: 5px; padding: 7px 10px; }
+#p-lead .rp em { float: right; font-style: normal; font-size: 11px; color: var(--muted); margin-left: 8px; }
+#p-lead .lf-last-text { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+#p-lead .rp span { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--soft); }
 #p-lead .lf-small { margin-top: 9px; }
 #p-lead .week-head { margin-top: 8px; }
 #p-lead .week { padding-top: 18px; }
@@ -488,7 +497,6 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 /* A column with many stages: number, share and name on one line. */
 #p-pipe .sk.tight b { font-size: 18px; }
 #p-pipe .sk.tight span { display: inline; margin-left: 6px; }
-#p-pipe .replies { flex: none; max-height: 230px; overflow: hidden; margin-top: 10px; }
 .rp { font-size: 14px; }
 .rp span { white-space: normal; overflow: visible; text-overflow: clip; color: var(--soft); }
 .rp.auto span { color: var(--muted); }
@@ -516,13 +524,9 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 
 /* The pipeline as wide as the team panel under it. */
 #p-pipe { width: calc(100% - 1000px); }
-#p-pipe .replies div.rp { white-space: normal; }
-#p-pipe .replies div.rp span { white-space: normal; overflow: visible; text-overflow: clip; }
 
 /* The octopus stays out of the way while WhatsApp is up. */
 #wa-layer.on ~ #spider { visibility: hidden; }
 
-/* The pipeline: two replies, the diagram gets the room. */
-#p-pipe .replies { max-height: 120px; }
 
 .rp i.no { color: #f87171; }

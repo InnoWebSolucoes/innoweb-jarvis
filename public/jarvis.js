@@ -197,7 +197,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (lf.ok) {
       roll($("lf-wa"), lf.whatsappToday);
       roll($("lf-email"), lf.emailsToday);
-      $("lf-senders").innerHTML = (lf.senders || []).map((x) => `<div class="${x.linked === false ? "off" : ""}"><span>${esc(String(x.label).replace(/^RAFA PERSONAL$/i, "Rafa").replace(/^Personal\s*/i, "Pers "))}</span><b>${num(x.today)}</b></div>`).join("");
+      const nums = (lf.senders || []).filter((x) => x.linked !== null || x.today > 0).sort((a2, b2) => (a2.linked === false ? 0 : 1) - (b2.linked === false ? 0 : 1) || b2.today - a2.today || b2.total - a2.total);
+      const loggedOut = nums.filter((x) => x.linked === false).length;
+      $("pl-senders-head").innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ""} \xB7 sent today, and in all`;
+      $("pl-senders").innerHTML = nums.map((x) => {
+        const label = String(x.label).replace(/^rafa personal$/i, "Rafa").replace(/^\w/, (c) => c.toUpperCase());
+        return `<div class="${x.linked === false ? "off" : x.today ? "" : "idle"}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>${x.linked === false ? "logged out" : num(x.total) + " in all"}</i></div>`;
+      }).join("");
       roll($("lf-new"), lf.leadsToday);
       const tr = lf.tracker || {};
       const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
@@ -349,7 +355,11 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       el.style.top = top + "px";
       below[c] = top + el.offsetHeight + 3;
     });
-    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><b>${esc(r.name)}</b>${r.kind === "yes" ? '<i class="hot">said yes</i>' : r.kind === "no" ? '<i class="no">said no</i>' : r.kind === "question" ? "<i>asked a question</i>" : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
+    const when = (iso) => {
+      const d = new Date(iso), m = Math.round((Date.now() - d) / 6e4);
+      return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 24 * 60 ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    };
+    $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 3).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><em>${when(r.at)}</em><b>${esc(r.name)}</b>${r.kind === "yes" ? '<i class="hot">said yes</i>' : r.kind === "no" ? '<i class="no">said no</i>' : r.kind === "question" ? "<i>asked a question</i>" : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
   function compact(n) {
     if (n == null) return "\u2014";
@@ -1042,7 +1052,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     };
     const est = 6e3 + String(c.reply || "").split(" ").length * 600 + (c.streaming ? 2e4 : 0);
     try {
-      play("/api/tts/" + c.id + "?sig=" + (c.sig || "") + (IS_TV ? "&full=1" : ""), fail, start, release, est);
+      play(c.audio || "/api/tts/" + c.id + "?sig=" + (c.sig || "") + (IS_TV ? "&full=1" : ""), fail, start, release, est);
     } catch (err) {
       fail();
     }
@@ -1158,7 +1168,42 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   }
   let reports = 0;
   setTimeout(() => tvReport("page loaded on " + location.host + ", voice " + (soundOn ? "on" : "waiting for OK")), 3e3);
+  const SAID_KEY = "jarvis-replies-said";
+  let saidReplies = {};
+  try {
+    saidReplies = JSON.parse(localStorage.getItem(SAID_KEY) || "{}") || {};
+  } catch (err) {
+  }
+  function markSaid(key) {
+    const now = Date.now();
+    saidReplies[key] = now;
+    for (const k in saidReplies) if (now - saidReplies[k] > 2 * 864e5) delete saidReplies[k];
+    try {
+      localStorage.setItem(SAID_KEY, JSON.stringify(saidReplies));
+    } catch (err) {
+    }
+  }
+  let replyPolling = false;
+  function pollReplies() {
+    return __async(this, null, function* () {
+      if (!S || !S.stale || replyPolling) return;
+      replyPolling = true;
+      try {
+        const r = yield getJson("/api/replies");
+        for (const x of r.replies || []) {
+          if (saidReplies[x.key]) continue;
+          markSaid(x.key);
+          if (Date.now() - new Date(x.at).getTime() > 15 * 6e4) continue;
+          runCommand({ id: "reply-" + x.key, action: "announce", panel: "pipe", reply: x.sentence, audio: "/api/say?text=" + encodeURIComponent(x.sentence) + "&sig=" + x.sig });
+        }
+      } catch (err) {
+      } finally {
+        replyPolling = false;
+      }
+    });
+  }
   function runCommand(c) {
+    if (c.replyKey) markSaid(c.replyKey);
     if (c.action === "announce") {
       const go2 = () => {
         showSay("", c.reply);
@@ -1318,6 +1363,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   poll();
   setInterval(poll, POLL_MS);
   setInterval(pollCommands, 500);
+  setInterval(pollReplies, 5e3);
   show();
   setTimeout(() => location.reload(), 6 * 36e5);
   sound.arm();

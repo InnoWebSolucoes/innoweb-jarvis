@@ -15,7 +15,9 @@ Events: what happened in the last 24 hours (sites built, emails and WhatsApps
 sent, call results, runs, new leads), each with a stable id so Jarvis can tell
 new ones from ones it has already shown.
 """
+import hashlib
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -111,6 +113,48 @@ def said_of(value):
     return t.strip()
 
 
+# What each reply was, from the finder's label on it ("25 Oct 14:31 (interested): ...").
+# An automatic reply isn't a client writing, so it isn't said out loud.
+REPLY_KINDS = {'interested': 'yes', 'question': 'question', 'stop': 'no', 'needs': 'other'}
+
+
+def reply_time(value, updated):
+    """When they wrote: the finder's stamp on the reply (UK time, no year), not
+    the row's updated_at, which moves whenever the finder rewrites the same reply."""
+    up = datetime.fromisoformat(str(updated).replace('Z', '+00:00'))
+    m = re.match(r'(\d{1,2} [A-Za-z]{3} \d{2}:\d{2}) ', str(value or ''))
+    if not m:
+        return up.isoformat()
+    t = datetime.strptime(f'{m.group(1)} {up.year}', '%d %b %H:%M %Y').replace(tzinfo=OFFICE)
+    if t > up + timedelta(days=1):   # a December reply rewritten in January
+        t = t.replace(year=up.year - 1)
+    return t.astimezone(timezone.utc).isoformat()
+
+
+def replies_since(rows, since):
+    """Every client reply written since then, each with a key that stays the same
+    for the same message (the lead and the words, not the label, so a reply the
+    finder relabels or rewrites isn't new), what it was (yes, question, no,
+    other) and the sentence Jarvis says out loud."""
+    out = []
+    for lead, name, key, value, at in rows(f"""SELECT v.lead_id, l.name, v.key, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
+                                               WHERE v.key IN ('uk_last_reply', 'whatsapp_reply') AND coalesce(v.value, '') <> ''
+                                                 AND v.updated_at >= %s AND v.lead_id IN {ACTIVE} ORDER BY v.updated_at""", since):
+        label = re.search(r'\(([a-z ]+)\):', str(value)[:40])
+        kind = REPLY_KINDS.get(label.group(1)) if label else ('other' if key == 'whatsapp_reply' else None)
+        if not kind:
+            continue
+        said = said_of(value)[:220]
+        words = re.sub(r' \([a-z ]+\):', ':', str(value))
+        sentence = {'yes': f'Good news! {name} said yes. They wrote: {said}',
+                    'question': f'Good news! {name} asked a question: {said}',
+                    'no': f'Bad news. {name} said no. They wrote: {said}',
+                    'other': f'New message from {name}: {said}'}[kind]
+        out.append({'key': f"{lead}-{hashlib.sha1(words.encode('utf-8')).hexdigest()[:12]}", 'lead': lead, 'name': name,
+                    'kind': kind, 'said': said, 'at': reply_time(value, at), 'sentence': sentence})
+    return out
+
+
 def pipeline(rows):
     """The lead finder's own pipeline (its Pipeline tab). A feed on the Mac works
     it out with the finder's code every 5 minutes and writes it to jarvis_pipeline
@@ -130,14 +174,17 @@ def pipeline(rows):
                      WHERE v.key IN ('whatsapp_reply', 'uk_last_reply', 'uk_autoreply', 'whatsapp_autoreply') AND coalesce(v.value, '') <> ''
                        AND NOT (v.key IN ('uk_autoreply', 'whatsapp_autoreply') AND EXISTS (SELECT 1 FROM lead_values r WHERE r.lead_id = v.lead_id AND r.key = 'uk_last_reply' AND coalesce(r.value, '') <> ''))
                        AND v.lead_id IN """ + ACTIVE + """
-                     ORDER BY (v.key IN ('uk_autoreply', 'whatsapp_autoreply')), v.updated_at DESC LIMIT 6""")
+                     ORDER BY (v.key IN ('uk_autoreply', 'whatsapp_autoreply')), v.updated_at DESC LIMIT 12""")
     replies = []
     for name, key, value, at in latest:
         said = said_of(value)
         is_auto = 'autoreply' in key or any(k in said.lower() for k in AUTO_REPLY)
         head = str(value)[:40].lower()
         kind = 'yes' if '(interested)' in head else 'no' if '(stop)' in head else 'question' if '(question)' in head else ''
-        replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto and not kind, 'interested': kind == 'yes', 'kind': kind})
+        replies.append({'name': name, 'said': said[:600], 'at': reply_time(value, at), 'auto': is_auto and not kind, 'interested': kind == 'yes', 'kind': kind})
+    # Real replies first, newest first by when they wrote (a reply the finder rewrote keeps its own time).
+    replies.sort(key=lambda r: r['at'], reverse=True)
+    replies = sorted(replies, key=lambda r: r['auto'])[:6]
     return {'nodes': nodes, 'links': data.get('links') or [], 'since': data.get('since'),
             # When the Mac last worked it out; stale: more than 15 minutes ago (the feed or the Mac is off).
             'updatedAt': updated, 'stale': bool(stale),
@@ -252,9 +299,8 @@ def collect(url):
                 ev.append({'id': f'run:{i}:fail', 'at': finished or at, 'kind': 'run_failed', 'text': f'Lead finder run in {project} failed'})
             elif status == 'running':
                 ev.append({'id': f'run:{i}:start', 'at': at, 'kind': 'run', 'text': f'Lead finder started {label} in {project}'})
-        for lead, name, value, at in rows("""SELECT v.lead_id, l.name, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
-                                             WHERE v.key IN ('whatsapp_reply', 'uk_last_reply') AND coalesce(v.value, '') <> '' AND v.updated_at >= %s""", since):
-            ev.append({'id': f'reply:{lead}', 'at': at, 'kind': 'reply', 'text': f'{name} replied on WhatsApp: "{said_of(value)[:160]}"', 'name': name})
+        for r in replies_since(rows, since):
+            ev.append({'id': f"reply:{r['key']}", 'at': r['at'], 'kind': 'reply', 'text': r['sentence'], 'name': r['name']})
         out['tracker'] = tracker(rows)
         # Without the finder's pipeline table, every other figure still shows.
         try:

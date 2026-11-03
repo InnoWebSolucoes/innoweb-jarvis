@@ -204,11 +204,11 @@ async function refreshLeads() {
     // Everything from the last day goes into the log, oldest first. What was
     // already there at start-up is history: listed, never celebrated.
     for (const e of next.events.sort((a, b) => (a.at < b.at ? -1 : 1))) {
+      // New replies are the reply watcher's (said the moment they land); here only the ones already there at start-up.
+      if (e.kind === 'reply' && !leadsFirst) continue;
       const [level, title, big] = LEAD_EVENTS[e.kind] || ['info'];
-      const logged = log(leadsFirst ? (level === 'error' ? 'warn' : 'info') : level, 'leads', e.text,
+      log(leadsFirst ? (level === 'error' ? 'warn' : 'info') : level, 'leads', e.text,
         { key: 'lf:' + e.id, at: e.at, panel: 'lead', title, big, history: leadsFirst || undefined });
-      // A business answering the lead finder is the big one: Jarvis says it out loud.
-      if (logged && !leadsFirst && e.kind === 'reply') announce(`Big news! ${e.text}`, 'lead');
     }
     watchTracker(prev.ok ? prev.tracker : null, next.tracker);
     if (prev.ok && next.meetings > prev.meetings) log('win', 'leads', 'A lead booked a meeting', { panel: 'lead', big: true, title: 'MEETING BOOKED' });
@@ -222,6 +222,31 @@ async function refreshLeads() {
     state.leads = { ok: false, error: String(err.message || err) };
     sourceFailed('leads', err, 'lead');
   }
+}
+
+// A client replying, said out loud the moment the lead finder records it:
+// scripts/replywatch.py looks every 3 seconds and prints each new reply. "Good
+// news" for a yes or a question, "bad news" for a no. The TV keeps the key, so
+// with this computer off it doesn't say the same reply again.
+function startReplyWatch() {
+  const w = spawn(LEADFINDER_PYTHON, ['-u', path.join(ROOT, 'scripts', 'replywatch.py'), LEADFINDER_DIR],
+    { windowsHide: true, env: { ...process.env, ...(env.LEAD_DB_URL ? { LEAD_DB_URL: env.LEAD_DB_URL } : {}) } });
+  let buf = '';
+  w.stdout.on('data', (d) => {
+    buf += d;
+    let n;
+    while ((n = buf.indexOf('\n')) >= 0) {
+      const m = safeJson(buf.slice(0, n)); buf = buf.slice(n + 1);
+      if (m.error) console.error('reply watch:', m.error);
+      const r = m.reply;
+      if (!r) continue;
+      const bad = r.kind === 'no', good = r.kind === 'yes' || r.kind === 'question';
+      if (!log(bad ? 'warn' : good ? 'win' : 'info', 'leads', r.sentence, { key: 'lf:reply:' + r.key, at: r.at, panel: 'pipe', title: bad ? 'BAD NEWS' : good ? 'GOOD NEWS' : 'NEW MESSAGE', big: good })) continue;
+      announce(r.sentence, 'pipe', { replyKey: r.key });
+    }
+  });
+  w.stderr.on('data', (d) => console.error('reply watch:', String(d).trim()));
+  w.on('exit', () => setTimeout(startReplyWatch, 5000));
 }
 
 // What the lead finder on the Mac is doing, said in the live log when it changes.
@@ -1421,8 +1446,8 @@ async function hear(text, alternatives = []) {
 }
 
 // Jarvis says something without being asked (a client replied, the Mac stopped).
-function announce(text, panel) {
-  const c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard: '', action: 'announce', panel, reply: text });
+function announce(text, panel, extra = {}) {
+  const c = pushCommand({ id: nextCommandId++, at: new Date().toISOString(), heard: '', action: 'announce', panel, reply: text, ...extra });
   speakToFile(c);
 }
 
@@ -1652,6 +1677,7 @@ function speakToFile(c) {
 // ---------------------------------------------------------------- loops
 
 startTtsWorker();
+startReplyWatch();
 warmClaude();
 
 // The numbers stay up on the live site while this computer is off: every 30

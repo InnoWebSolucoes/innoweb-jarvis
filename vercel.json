@@ -9,6 +9,13 @@
     "api/leads.py": {
       "maxDuration": 30,
       "includeFiles": "lib/**"
+    },
+    "api/replies.py": {
+      "maxDuration": 15,
+      "includeFiles": "lib/**"
+    },
+    "api/say.py": {
+      "maxDuration": 30
     }
   },
   "rewrites": [

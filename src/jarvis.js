@@ -180,8 +180,16 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (lf.ok) {
       roll($('lf-wa'), lf.whatsappToday);
       roll($('lf-email'), lf.emailsToday);
-      // Each WhatsApp number: sent today; red when it isn't linked.
-      $('lf-senders').innerHTML = (lf.senders || []).map((x) => `<div class="${x.linked === false ? 'off' : ''}"><span>${esc(String(x.label).replace(/^RAFA PERSONAL$/i, 'Rafa').replace(/^Personal\s*/i, 'Pers '))}</span><b>${num(x.today)}</b></div>`).join('');
+      // Each WhatsApp number, under the pipeline: sent today and in all. Logged-out
+      // ones first, in red; a number no longer in the finder's list only if it sent today.
+      const nums = (lf.senders || []).filter((x) => x.linked !== null || x.today > 0)
+        .sort((a, b) => (a.linked === false ? 0 : 1) - (b.linked === false ? 0 : 1) || b.today - a.today || b.total - a.total);
+      const loggedOut = nums.filter((x) => x.linked === false).length;
+      $('pl-senders-head').innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ''} · sent today, and in all`;
+      $('pl-senders').innerHTML = nums.map((x) => {
+        const label = String(x.label).replace(/^rafa personal$/i, 'Rafa').replace(/^\w/, (c) => c.toUpperCase());
+        return `<div class="${x.linked === false ? 'off' : x.today ? '' : 'idle'}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>${x.linked === false ? 'logged out' : num(x.total) + ' in all'}</i></div>`;
+      }).join('');
       roll($('lf-new'), lf.leadsToday);
       const tr = lf.tracker || {};
       const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
@@ -334,8 +342,14 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       el.style.top = top + 'px';
       below[c] = top + el.offsetHeight + 3;
     });
+    // The latest replies, in the lead finder panel: who, what it was, what they said, when.
+    const when = (iso) => {
+      const d = new Date(iso), m = Math.round((Date.now() - d) / 60000);
+      return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 24 * 60 ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    };
     $('replies').innerHTML = pl.replies.length
-      ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.kind === 'yes' ? '<i class="hot">said yes</i>' : r.kind === 'no' ? '<i class="no">said no</i>' : r.kind === 'question' ? '<i>asked a question</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
+      ? pl.replies.slice(0, 3).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><em>${when(r.at)}</em><b>${esc(r.name)}</b>${r.kind === 'yes' ? '<i class="hot">said yes</i>' : r.kind === 'no' ? '<i class="no">said no</i>' : r.kind === 'question' ? '<i>asked a question</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
       : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
 
@@ -948,7 +962,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const fail = () => { start(); fallback(); };
     // On a TV, the whole file (a stream with no length never "ends" there).
     const est = 6000 + String(c.reply || '').split(' ').length * 600 + (c.streaming ? 20000 : 0);
-    try { play('/api/tts/' + c.id + '?sig=' + (c.sig || '') + (IS_TV ? '&full=1' : ''), fail, start, release, est); } catch (err) { fail(); }
+    try { play(c.audio || '/api/tts/' + c.id + '?sig=' + (c.sig || '') + (IS_TV ? '&full=1' : ''), fail, start, release, est); } catch (err) { fail(); }
     return true;
   }
   // One sound at a time: the answer waits for "let me think" to finish. The
@@ -1036,7 +1050,39 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   let reports = 0;
   setTimeout(() => tvReport('page loaded on ' + location.host + ', voice ' + (soundOn ? 'on' : 'waiting for OK')), 3000);
 
+  // ------------------------------------------------------------ client replies, said out loud
+  // With the Jarvis PC on, it says each reply the moment it lands (an announce
+  // command carrying the reply's key). With it off, this page asks the live site
+  // for the last half hour's replies every 5 seconds and says the new ones itself,
+  // in the same voice (/api/say), or the TV's own if that fails. Every reply said
+  // either way is kept (here and in the browser), so none is said twice.
+  const SAID_KEY = 'jarvis-replies-said';
+  let saidReplies = {};
+  try { saidReplies = JSON.parse(localStorage.getItem(SAID_KEY) || '{}') || {}; } catch (err) { /* storage blocked: kept in memory only */ }
+  function markSaid(key) {
+    const now = Date.now();
+    saidReplies[key] = now;
+    for (const k in saidReplies) if (now - saidReplies[k] > 2 * 86400000) delete saidReplies[k];
+    try { localStorage.setItem(SAID_KEY, JSON.stringify(saidReplies)); } catch (err) { /* kept in memory */ }
+  }
+  let replyPolling = false;
+  async function pollReplies() {
+    if (!S || !S.stale || replyPolling) return;
+    replyPolling = true;
+    try {
+      const r = await getJson('/api/replies');
+      for (const x of r.replies || []) {
+        if (saidReplies[x.key]) continue;
+        markSaid(x.key);
+        if (Date.now() - new Date(x.at).getTime() > 15 * 60000) continue;   // found late or rewritten: not news
+        runCommand({ id: 'reply-' + x.key, action: 'announce', panel: 'pipe', reply: x.sentence, audio: '/api/say?text=' + encodeURIComponent(x.sentence) + '&sig=' + x.sig });
+      }
+    } catch (err) { /* the next look tries again */ }
+    finally { replyPolling = false; }
+  }
+
   function runCommand(c) {
+    if (c.replyKey) markSaid(c.replyKey);
     if (c.action === 'announce') {
       const go = () => { showSay('', c.reply); if (c.panel) zoom(c.panel, 20); };
       if (!speak(c, go)) go();
@@ -1144,6 +1190,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   poll();
   setInterval(poll, POLL_MS);
   setInterval(pollCommands, 500);
+  setInterval(pollReplies, 5000);
   show();
 
   // A clean reload every 6 hours keeps a browser that runs day and night fresh.

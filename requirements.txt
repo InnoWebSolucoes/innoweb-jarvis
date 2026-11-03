@@ -1,2 +1,3 @@
 psycopg[binary]==3.2.9
 tzdata
+edge-tts==7.3.1
