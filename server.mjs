@@ -697,7 +697,7 @@ function answer(panel) {
       const pl = state.leads.pipeline;
       if (!pl) return 'I am still reading the pipeline.';
       const pc = (x, y) => (y ? Math.round((x / y) * 100) : 0);
-      return `${pl.sent} businesses contacted. ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent: ${pl.yes} said yes, ${pl.questions} asked a question and ${pl.saidNo} said no. ${pl.autoReplied} only sent an automatic reply. ${pl.followUp} of the yeses are followed up, and ${pl.waitingOnUs} are waiting on us. ${pl.won} won.`;
+      return `${pl.sent} businesses contacted. ${pl.replied} replied, that's ${pc(pl.replied, pl.sent)} percent: ${pl.yes} said yes, ${pl.questions} asked a question and ${pl.saidNo} said no. ${pl.autoReplied} only sent an automatic reply. ${pl.followed} are followed up and ${pl.waitingOnUs} ${pl.waitingOnUs === 1 ? 'is' : 'are'} waiting on us${pl.waitingNames && pl.waitingNames.length ? `: ${pl.waitingNames.join(', ')}` : ''}. ${pl.demoSent} have their demo, and ${pl.clients} became a client${pl.clientNames && pl.clientNames.length ? `: ${pl.clientNames.join(', ')}` : ''}.${pl.stale ? ` These figures are from ${new Date(pl.updatedAt).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}, the lead finder's Mac hasn't updated them since.` : ''}`;
     }
     case 'cd': {
       let left = Math.max(0, new Date(b.countdown?.target) - Date.now());
@@ -921,7 +921,7 @@ How to answer: the first line is a JSON object with what to do on the TV, then a
 {"action":"show_site","site":"https://innoweb.agency/fada-madrinha"}
 {"action":"add_task","assignee":"Adilson","task":"Redo the Okulya flyers","due":"2026-10-24"}
 
-Panels: ach (the money goal and the admin to-do list), pipe (the pipeline: contacted; replied, automatic reply only, no reply yet; of the replies yes, no, waiting on us; of the yeses followed up; won; and the latest replies), site (our work), meta (Claude usage of our accounts), team (FlowDesk employees), cd (countdown), lead (lead finder: what it is doing and today's websites sent, WhatsApps and new leads), link (Innolink pages), log (live log).`;
+Panels: ach (the money goal and the admin to-do list), pipe (the lead finder's pipeline: contacted; no reply, automatic reply only, replied; of the replies yes, a question, no; the yeses and questions followed up or waiting on us; demo sent; replied to the demo or not; became a client; and the latest replies), site (our work), meta (Claude usage of our accounts), team (FlowDesk employees), cd (countdown), lead (lead finder: what it is doing and today's websites sent, WhatsApps and new leads), link (Innolink pages), log (live log).`;
 
 const recent = [];  // the last few exchanges, for follow-up questions
 function snapshot() {

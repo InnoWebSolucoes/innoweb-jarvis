@@ -92,32 +92,8 @@ def tracker(rows):
     }
 
 
-# A lead counts as contacted when the outreach reached it: emailed, messaged,
-# a WhatsApp went out (from any of the numbers), the UK run sent it, or an
-# Instagram message went. (A status set from an old phone call, like the Porto
-# pilot's "not interested", is not part of the outreach and doesn't count.)
-CONTACTED = "(status IN ('Emailed', 'Messaged') OR wa_sent = 1 OR uk_sent = 1 OR ig_sent = 1)"
 AUTO_REPLY = ('thanks for your message', 'thank you for your message', 'please answer if first time', 'we will get back',
               "we'll get back", 'out of office', 'automatic reply', 'auto-reply', 'currently unavailable', 'away message')
-# Where the finder writes replies: the newer fields (replied_at, uk_last_reply,
-# uk_autoreply, interested_at, uk_told_tomorrow) and the older whatsapp_reply.
-LEAD_VIEW = """
-  SELECT lead_id,
-    max(CASE WHEN key = 'call_result' THEN value END) AS status,
-    max(CASE WHEN key = 'call_result' THEN updated_at END) AS status_at,
-    max(CASE WHEN key = 'whatsapp_status' AND value LIKE 'sent %%' THEN 1 END) AS wa_sent,
-    max(CASE WHEN key = 'uk_status' AND value = 'sent' THEN 1 END) AS uk_sent,
-    max(CASE WHEN key = 'instagram_status' AND value LIKE 'sent %%' THEN 1 END) AS ig_sent,
-    max(CASE WHEN key IN ('whatsapp_reply', 'uk_last_reply', 'replied_at') AND coalesce(value, '') <> '' THEN updated_at END) AS reply_at,
-    max(CASE WHEN key IN ('uk_autoreply', 'whatsapp_autoreply') AND coalesce(value, '') <> '' THEN updated_at END) AS auto_at,
-    max(CASE WHEN key = 'interested_at' AND coalesce(value, '') <> '' THEN 1 END) AS interested,
-    max(CASE WHEN key = 'uk_told_tomorrow' AND coalesce(value, '') <> '' THEN 1 END) AS told,
-    max(CASE WHEN key = 'callback_date' AND coalesce(value, '') <> '' THEN 1 END) AS follow_date,
-    max(CASE WHEN key = 'uk_last_reply' THEN lower(substring(value from '[(]([A-Za-z ]+)[)]:')) END) AS reply_kind,
-    max(CASE WHEN key = 'uk_status' THEN value END) AS uk_state
-  FROM lead_values WHERE lead_id IN """ + ACTIVE + """ GROUP BY lead_id"""
-
-
 def said_of(value):
     """The words of a reply, without the finder's stamps:
     "24 Oct 17:33 (interested): the words 17:13" or "[15:55, 10/24/2026] +44 7380 866999: the words 15:55"."""
@@ -136,34 +112,20 @@ def said_of(value):
 
 
 def pipeline(rows):
-    """Where every contacted lead has got to, so each stage adds up to the one
-    before it:
-      contacted = replied + automatic reply only + no reply yet
-      replied   = yes + no + waiting on us   (the finder labels each reply:
-                  "(interested)", "(stop)", "(question)"; a no can also be a
-                  "do not contact" status or a "Not interested" result)
-      yes       -> followed up (we answered: told them tomorrow, a callback,
-                  a meeting or proposal) -> won
-    With the latest replies themselves, by name."""
-    stage_sql = f"""
-      WITH v AS ({LEAD_VIEW}),
-      c AS (SELECT *,
-              coalesce(reply_at IS NOT NULL OR interested = 1 OR uk_state = 'do not contact'
-               OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won', 'Not interested'), false) AS real_reply,
-              coalesce(interested = 1 OR reply_kind = 'interested' OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won'), false) AS said_yes
-            FROM v WHERE {CONTACTED} OR reply_at IS NOT NULL OR auto_at IS NOT NULL OR status IN ('Interested', 'Meeting set', 'Proposal sent', 'Won')
-                                     OR (status = 'Not interested' AND status_at > '2026-10-20')),
-      d AS (SELECT *, coalesce(real_reply AND NOT said_yes AND (reply_kind IN ('stop', 'not interested', 'no') OR uk_state = 'do not contact' OR status = 'Not interested'), false) AS said_no FROM c)
-      SELECT count(*),
-        count(*) FILTER (WHERE real_reply),
-        count(*) FILTER (WHERE said_yes),
-        count(*) FILTER (WHERE said_no),
-        count(*) FILTER (WHERE real_reply AND NOT said_yes AND NOT said_no),
-        count(*) FILTER (WHERE auto_at IS NOT NULL AND NOT real_reply),
-        count(*) FILTER (WHERE said_yes AND coalesce(told = 1 OR follow_date = 1 OR status IN ('Meeting set', 'Proposal sent', 'Won'), false)),
-        count(*) FILTER (WHERE status = 'Won')
-      FROM d"""
-    sent, replied, yes, no, waiting, auto, followed, won = rows(stage_sql)[0]
+    """The lead finder's own pipeline (its Pipeline tab). A feed on the Mac works
+    it out with the finder's code every 5 minutes and writes it to jarvis_pipeline
+    (project 0 = every project that isn't archived, added together):
+    {since, nodes: [{id, label, col, about, n, names}], links: [{from, to, n}]}.
+    From contacted, through the replies (yes, a question, no) and our follow-up,
+    to the demo and who became a client. With the latest replies themselves, by name."""
+    r = rows("SELECT data, updated_at, now() - updated_at::timestamptz > interval '15 minutes' FROM jarvis_pipeline WHERE project_id = 0")
+    if not r:
+        raise LookupError('the lead finder has not written its pipeline yet (jarvis_pipeline is empty)')
+    data, updated, stale = r[0]
+    data = json.loads(data)
+    nodes = data.get('nodes') or []
+    n = {x['id']: x.get('n') or 0 for x in nodes}
+    names = {x['id']: x.get('names') or [] for x in nodes}
     latest = rows("""SELECT l.name, v.key, v.value, v.updated_at FROM lead_values v JOIN leads l ON l.id = v.lead_id
                      WHERE v.key IN ('whatsapp_reply', 'uk_last_reply', 'uk_autoreply', 'whatsapp_autoreply') AND coalesce(v.value, '') <> ''
                        AND NOT (v.key IN ('uk_autoreply', 'whatsapp_autoreply') AND EXISTS (SELECT 1 FROM lead_values r WHERE r.lead_id = v.lead_id AND r.key = 'uk_last_reply' AND coalesce(r.value, '') <> ''))
@@ -176,9 +138,14 @@ def pipeline(rows):
         head = str(value)[:40].lower()
         kind = 'yes' if '(interested)' in head else 'no' if '(stop)' in head else 'question' if '(question)' in head else ''
         replies.append({'name': name, 'said': said[:600], 'at': at, 'auto': is_auto and not kind, 'interested': kind == 'yes', 'kind': kind})
-    # Waiting on us: everyone we owe an answer, the yeses not followed up yet and the questions.
-    return {'sent': sent, 'replied': replied, 'yes': yes, 'saidNo': no, 'questions': waiting, 'autoReplied': auto,
-            'followUp': followed, 'waitingOnUs': (yes - followed) + waiting, 'won': won, 'replies': replies}
+    return {'nodes': nodes, 'links': data.get('links') or [], 'since': data.get('since'),
+            # When the Mac last worked it out; stale: more than 15 minutes ago (the feed or the Mac is off).
+            'updatedAt': updated, 'stale': bool(stale),
+            # The headline numbers, for Jarvis's voice and the panel captions.
+            'sent': n.get('contacted', 0), 'replied': n.get('human', 0), 'autoReplied': n.get('auto', 0), 'yes': n.get('yes', 0),
+            'questions': n.get('question', 0), 'saidNo': n.get('no', 0), 'followed': n.get('followed', 0), 'demoSent': n.get('demo', 0),
+            'waitingOnUs': n.get('waiting', 0), 'clients': n.get('client', 0),
+            'waitingNames': names.get('waiting', []), 'clientNames': names.get('client', []), 'replies': replies}
 
 
 def week(rows):
@@ -289,7 +256,11 @@ def collect(url):
                                              WHERE v.key IN ('whatsapp_reply', 'uk_last_reply') AND coalesce(v.value, '') <> '' AND v.updated_at >= %s""", since):
             ev.append({'id': f'reply:{lead}', 'at': at, 'kind': 'reply', 'text': f'{name} replied on WhatsApp: "{said_of(value)[:160]}"', 'name': name})
         out['tracker'] = tracker(rows)
-        out['pipeline'] = pipeline(rows)
+        # Without the finder's pipeline table, every other figure still shows.
+        try:
+            out['pipeline'] = pipeline(rows)
+        except (LookupError, psycopg.Error) as err:
+            out['pipeline'], out['pipelineError'] = None, str(err).splitlines()[0][:200]
         out['week'] = week(rows)
         out['senders'] = senders(rows, setting(rows, 'wa_senders'), midnight)
         # The last WhatsApp that went out, word for word, and who it went to.

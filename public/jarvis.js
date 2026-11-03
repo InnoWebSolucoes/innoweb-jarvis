@@ -224,7 +224,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       }).join("");
       const pl = lf.pipeline;
       if (pl) {
-        const stages = [["Contacted", pl.sent], ["They replied", pl.replied], ["We answered", pl.answered], ["Follow-up", pl.followUp], ["Won", pl.won]];
         drawPipeline(pl);
       }
     } else {
@@ -267,44 +266,55 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     el.innerHTML = `<b>Offline</b>${list.map(esc).join(", ")}`;
     el.className = "show";
   }
+  const STAGE_COLORS = {
+    contacted: "#94a3b8",
+    none: "#475569",
+    auto: "#64748b",
+    human: "#3b82f6",
+    auto_followed: "#38bdf8",
+    auto_not: "#fb923c",
+    yes: "#34d399",
+    question: "#a78bfa",
+    no: "#f87171",
+    other: "#94a3b8",
+    followed: "#38bdf8",
+    waiting: "#fb923c",
+    demo: "#2dd4bf",
+    no_demo: "#fb923c",
+    demo_replied: "#34d399",
+    demo_silent: "#64748b",
+    client: "#facc15",
+    not_yet: "#94a3b8"
+  };
   function drawPipeline(pl) {
     const box = $("funnel"), W2 = box.offsetWidth || 400, H2 = box.offsetHeight || 210;
-    const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
-    const sent = pl.sent || 0, replied = pl.replied || 0, auto = pl.autoReplied || 0;
-    const yes = pl.yes || 0, no = pl.saidNo || 0, questions = pl.questions || 0, follow = pl.followUp || 0, won = pl.won || 0;
-    const yesWaiting = Math.max(0, yes - follow);
-    const nodes = {
-      sent: { n: sent, label: "Contacted", color: "#94a3b8" },
-      replied: { n: replied, label: "Replied", color: "#3b82f6" },
-      auto: { n: auto, label: "Auto reply", color: "#64748b" },
-      silent: { n: Math.max(0, sent - replied - auto), label: "No reply yet", color: "#475569" },
-      yes: { n: yes, label: "Said yes", color: "#34d399" },
-      question: { n: questions, label: "Asked a question", color: "#a78bfa" },
-      no: { n: no, label: "Said no", color: "#f87171" },
-      follow: { n: follow, label: "Followed up", color: "#38bdf8" },
-      waiting: { n: yesWaiting + questions, label: "Waiting on us", color: "#fb923c", noPct: true },
-      won: { n: won, label: "Won", color: "#facc15" }
-    };
-    const links = [
-      ["sent", "replied", replied],
-      ["sent", "auto", auto],
-      ["sent", "silent", nodes.silent.n],
-      ["replied", "yes", yes],
-      ["replied", "question", questions],
-      ["replied", "no", no],
-      ["yes", "follow", follow],
-      ["yes", "waiting", yesWaiting],
-      ["question", "waiting", questions],
-      ["follow", "won", won]
-    ];
-    const cols = [["sent"], ["replied", "auto", "silent"], ["yes", "question", "no"], ["follow", "waiting"], ["won"]].map((ids) => ids.filter((id) => id === "sent" || nodes[id].n > 0)).filter((ids) => ids.length);
-    const scale = (H2 - SLOT * 2 - GAP * 2) / Math.max(1, sent);
+    const NODE = 8, GAP = 10, LABEL = 110;
+    $("pipe-meta").textContent = pl.stale && pl.updatedAt ? `as of ${new Date(pl.updatedAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}, may be out of date` : "every lead contacted";
+    $("pipe-meta").className = pl.stale ? "meta stale" : "meta";
+    const nodes = {}, order = {};
+    (pl.nodes || []).forEach((nd, k) => {
+      nodes[nd.id] = { n: nd.n, label: nd.label, col: nd.col, color: STAGE_COLORS[nd.id] || "#94a3b8" };
+      order[nd.id] = k;
+    });
+    const sent = nodes.contacted ? nodes.contacted.n : 0;
+    const links = (pl.links || []).filter((l) => nodes[l.from] && nodes[l.to]).map((l) => [l.from, l.to, l.n]).sort((a, b) => order[a[1]] - order[b[1]] || order[a[0]] - order[b[0]]);
+    const cols = [];
+    for (const id in nodes) if (id === "contacted" || nodes[id].n > 0) (cols[nodes[id].col] = cols[nodes[id].col] || []).push(id);
+    for (let c = cols.length - 1; c >= 0; c--) if (!cols[c]) cols.splice(c, 1);
+    const most = Math.max(1, ...cols.map((ids) => ids.length));
+    const dense = cols.length > 5;
+    box.className = dense ? "funnel dense" : "funnel";
+    let SLOT = dense ? 48 : 40;
+    if ((SLOT + GAP) * (most - 1) > H2 * 0.6) SLOT = Math.max(22, Math.floor(H2 * 0.6 / (most - 1)) - GAP);
+    const tight = SLOT < 36;
+    const scale = (H2 - (SLOT + GAP) * (most - 1)) / Math.max(1, sent);
     const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     const ox = Math.max(0, Math.round((W2 - ((cols.length - 1) * step + NODE + LABEL)) / 2));
     cols.forEach((ids, c) => {
       let y = 0;
       ids.forEach((id) => {
         const nd = nodes[id];
+        nd.c = c;
         nd.x = ox + Math.round(c * step);
         nd.h = Math.max(3, nd.n * scale);
         nd.y = y;
@@ -325,13 +335,20 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     let text = "";
     for (const id in nodes) {
       if (nodes[id].x == null) continue;
-      const nd = nodes[id], parent = links.filter((l) => l[1] === id)[0];
+      const nd = nodes[id], parents = links.filter((l) => l[1] === id), parent = parents.length === 1 && parents[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
-      const pct = parent && !nd.noPct && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round(nd.n / nodes[parent[0]].n * 100)}%</i>` : "";
-      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H2 - SLOT, nd.y + nd.h / 2 - 16));
-      text += `<div class="sk${nd.n ? "" : " none"}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
+      const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round(nd.n / nodes[parent[0]].n * 100)}%</i>` : "";
+      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H2 - SLOT, nd.y + nd.h / 2 - (tight ? 10 : 16)));
+      const room = nd.c === cols.length - 1 ? W2 - nd.x - NODE - 8 : step - NODE - 16;
+      text += `<div class="sk${nd.n ? "" : " none"}${tight ? " tight" : ""}" data-c="${nd.c}" style="left:${nd.x + NODE + 8}px;top:${top}px;max-width:${Math.max(60, Math.round(room))}px"><b>${num(nd.n)}</b>${pct}<span>${esc(nd.label)}</span></div>`;
     }
     box.innerHTML = `<svg width="${W2}" height="${H2}" viewBox="0 0 ${W2} ${H2}">${paths}</svg><div class="sk-labels">${text}</div>`;
+    const below = {};
+    Array.prototype.forEach.call(box.querySelectorAll(".sk"), (el) => {
+      const c = el.getAttribute("data-c"), top = Math.max(el.offsetTop, below[c] || 0);
+      el.style.top = top + "px";
+      below[c] = top + el.offsetHeight + 3;
+    });
     $("replies").innerHTML = pl.replies.length ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? " auto" : ""}"><b>${esc(r.name)}</b>${r.kind === "yes" ? '<i class="hot">said yes</i>' : r.kind === "no" ? '<i class="no">said no</i>' : r.kind === "question" ? "<i>asked a question</i>" : ""}${r.auto ? "<i>automatic reply</i>" : ""}<span>${esc(r.said)}</span></div>`).join("") : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
   }
   function compact(n) {
@@ -841,7 +858,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         return `${eur(a.revenue)} of ${eur(a.revenueGoal)}, ${S.flowdesk && S.flowdesk.todo ? S.flowdesk.todo.open.length + " to do" : ""}`;
       case "pipe": {
         const pl = S.leads && S.leads.pipeline;
-        return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.won} won` : "";
+        return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.waitingOnUs} waiting on us` : "";
       }
       case "meta": {
         const t = (S.tokens || []).filter((x) => x.used != null);

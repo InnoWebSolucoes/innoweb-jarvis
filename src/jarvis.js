@@ -211,7 +211,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       // The pipeline: each stage, and how many of the stage before made it.
       const pl = lf.pipeline;
       if (pl) {
-        const stages = [['Contacted', pl.sent], ['They replied', pl.replied], ['We answered', pl.answered], ['Follow-up', pl.followUp], ['Won', pl.won]];
         drawPipeline(pl);
       }
     } else {
@@ -259,39 +258,41 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   }
 
   // ------------------------------------------------------------ pipeline as a flow diagram
-  // Every lead the outreach contacted flows left to right: replied or not; of
-  // the replies, we answered, they said no, or they're waiting on us; then
-  // follow-up; then won. Band widths are numbers of leads. Each stage keeps a
-  // label-sized slot so labels never land on each other, and each label sits on
-  // a soft backing so a flow passing behind never runs through the text.
+  // The lead finder's own pipeline (its Pipeline tab), across the projects that
+  // aren't archived: its nodes, columns and flows as the Mac writes them every
+  // 5 minutes. Everyone contacted flows left to right: no reply, an automatic
+  // reply or a real reply (yes, a question, no), then our follow-up, the demo,
+  // their answer to it and who became a client. Band widths are numbers of
+  // leads. Each stage keeps a label-sized slot so labels never land on each
+  // other, and each label sits on a soft backing so a flow passing behind never
+  // runs through the text.
+  const STAGE_COLORS = { contacted: '#94a3b8', none: '#475569', auto: '#64748b', human: '#3b82f6', auto_followed: '#38bdf8', auto_not: '#fb923c',
+    yes: '#34d399', question: '#a78bfa', no: '#f87171', other: '#94a3b8', followed: '#38bdf8', waiting: '#fb923c', demo: '#2dd4bf', no_demo: '#fb923c',
+    demo_replied: '#34d399', demo_silent: '#64748b', client: '#facc15', not_yet: '#94a3b8' };
   function drawPipeline(pl) {
     const box = $('funnel'), W = box.offsetWidth || 400, H = box.offsetHeight || 210;
-    const NODE = 8, GAP = 10, LABEL = 70, SLOT = 40;
-    // Every lead flows somewhere, and each stage adds up to the one before it:
-    // contacted = replied + auto reply + no reply yet; replied = yes + question
-    // + no; then the yeses are followed up or waiting on us, the questions are
-    // waiting on us; followed up -> won.
-    const sent = pl.sent || 0, replied = pl.replied || 0, auto = pl.autoReplied || 0;
-    const yes = pl.yes || 0, no = pl.saidNo || 0, questions = pl.questions || 0, follow = pl.followUp || 0, won = pl.won || 0;
-    const yesWaiting = Math.max(0, yes - follow);
-    const nodes = {
-      sent: { n: sent, label: 'Contacted', color: '#94a3b8' },
-      replied: { n: replied, label: 'Replied', color: '#3b82f6' },
-      auto: { n: auto, label: 'Auto reply', color: '#64748b' },
-      silent: { n: Math.max(0, sent - replied - auto), label: 'No reply yet', color: '#475569' },
-      yes: { n: yes, label: 'Said yes', color: '#34d399' },
-      question: { n: questions, label: 'Asked a question', color: '#a78bfa' },
-      no: { n: no, label: 'Said no', color: '#f87171' },
-      follow: { n: follow, label: 'Followed up', color: '#38bdf8' },
-      waiting: { n: yesWaiting + questions, label: 'Waiting on us', color: '#fb923c', noPct: true },
-      won: { n: won, label: 'Won', color: '#facc15' },
-    };
-    // [from, to, how many]: "waiting on us" is fed by two stages.
-    const links = [['sent', 'replied', replied], ['sent', 'auto', auto], ['sent', 'silent', nodes.silent.n], ['replied', 'yes', yes], ['replied', 'question', questions], ['replied', 'no', no],
-      ['yes', 'follow', follow], ['yes', 'waiting', yesWaiting], ['question', 'waiting', questions], ['follow', 'won', won]];
-    const cols = [['sent'], ['replied', 'auto', 'silent'], ['yes', 'question', 'no'], ['follow', 'waiting'], ['won']]
-      .map((ids) => ids.filter((id) => id === 'sent' || nodes[id].n > 0)).filter((ids) => ids.length);
-    const scale = (H - SLOT * 2 - GAP * 2) / Math.max(1, sent);
+    const NODE = 8, GAP = 10, LABEL = 110;
+    $('pipe-meta').textContent = pl.stale && pl.updatedAt
+      ? `as of ${new Date(pl.updatedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}, may be out of date` : 'every lead contacted';
+    $('pipe-meta').className = pl.stale ? 'meta stale' : 'meta';
+    const nodes = {}, order = {};
+    (pl.nodes || []).forEach((nd, k) => { nodes[nd.id] = { n: nd.n, label: nd.label, col: nd.col, color: STAGE_COLORS[nd.id] || '#94a3b8' }; order[nd.id] = k; });
+    const sent = nodes.contacted ? nodes.contacted.n : 0;
+    // [from, to, how many], in the finder's node order so the bands stack the way the stages do.
+    const links = (pl.links || []).filter((l) => nodes[l.from] && nodes[l.to]).map((l) => [l.from, l.to, l.n])
+      .sort((a, b) => order[a[1]] - order[b[1]] || order[a[0]] - order[b[0]]);
+    const cols = [];
+    for (const id in nodes) if (id === 'contacted' || nodes[id].n > 0) (cols[nodes[id].col] = cols[nodes[id].col] || []).push(id);
+    for (let c = cols.length - 1; c >= 0; c--) if (!cols[c]) cols.splice(c, 1);
+    // A column with many stages: smaller slots, and the labels go on one line.
+    const most = Math.max(1, ...cols.map((ids) => ids.length));
+    // Many columns (the stages after the demo): smaller labels, a name over two lines.
+    const dense = cols.length > 5;
+    box.className = dense ? 'funnel dense' : 'funnel';
+    let SLOT = dense ? 48 : 40;
+    if ((SLOT + GAP) * (most - 1) > H * 0.6) SLOT = Math.max(22, Math.floor((H * 0.6) / (most - 1)) - GAP);
+    const tight = SLOT < 36;
+    const scale = (H - (SLOT + GAP) * (most - 1)) / Math.max(1, sent);
     // Columns spread over the width; with only one or two stages, they stay a readable distance apart.
     const step = cols.length > 1 ? Math.min((W - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     // Centred across the panel.
@@ -300,7 +301,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       let y = 0;
       ids.forEach((id) => {
         const nd = nodes[id];
-        nd.x = ox + Math.round(c * step); nd.h = Math.max(3, nd.n * scale);
+        nd.c = c; nd.x = ox + Math.round(c * step); nd.h = Math.max(3, nd.n * scale);
         nd.y = y; nd.out = y; nd.in = y;
         y += Math.max(nd.h, SLOT) + GAP;
       });
@@ -316,13 +317,23 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     let text = '';
     for (const id in nodes) {
       if (nodes[id].x == null) continue;   // an empty stage, not drawn
-      const nd = nodes[id], parent = links.filter((l) => l[1] === id)[0];
+      // A share of the stage before, when there is just one stage before it.
+      const nd = nodes[id], parents = links.filter((l) => l[1] === id), parent = parents.length === 1 && parents[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
-      const pct = parent && !nd.noPct && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round((nd.n / nodes[parent[0]].n) * 100)}%</i>` : '';
-      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H - SLOT, nd.y + nd.h / 2 - 16));
-      text += `<div class="sk${nd.n ? '' : ' none'}" style="left:${nd.x + NODE + 8}px;top:${top}px"><b>${num(nd.n)}</b>${pct}<span>${nd.label}</span></div>`;
+      const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round((nd.n / nodes[parent[0]].n) * 100)}%</i>` : '';
+      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H - SLOT, nd.y + nd.h / 2 - (tight ? 10 : 16)));
+      // A stage's name wraps before it reaches the next column.
+      const room = nd.c === cols.length - 1 ? W - nd.x - NODE - 8 : step - NODE - 16;
+      text += `<div class="sk${nd.n ? '' : ' none'}${tight ? ' tight' : ''}" data-c="${nd.c}" style="left:${nd.x + NODE + 8}px;top:${top}px;max-width:${Math.max(60, Math.round(room))}px"><b>${num(nd.n)}</b>${pct}<span>${esc(nd.label)}</span></div>`;
     }
     box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${paths}</svg><div class="sk-labels">${text}</div>`;
+    // A label taller than its slot (a name over two lines) moves down clear of the one above it.
+    const below = {};
+    Array.prototype.forEach.call(box.querySelectorAll('.sk'), (el) => {
+      const c = el.getAttribute('data-c'), top = Math.max(el.offsetTop, below[c] || 0);
+      el.style.top = top + 'px';
+      below[c] = top + el.offsetHeight + 3;
+    });
     $('replies').innerHTML = pl.replies.length
       ? pl.replies.slice(0, 2).map((r) => `<div class="rp${r.auto ? ' auto' : ''}"><b>${esc(r.name)}</b>${r.kind === 'yes' ? '<i class="hot">said yes</i>' : r.kind === 'no' ? '<i class="no">said no</i>' : r.kind === 'question' ? '<i>asked a question</i>' : ''}${r.auto ? '<i>automatic reply</i>' : ''}<span>${esc(r.said)}</span></div>`).join('')
       : `<div class="rp none">No replies yet from the ${num(pl.sent)} businesses contacted.</div>`;
@@ -782,7 +793,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const days = S.board?.countdown ? Math.max(0, Math.ceil((new Date(S.board.countdown.target) - Date.now()) / 864e5)) : null;
     switch (key) {
       case 'ach': return `${eur(a.revenue)} of ${eur(a.revenueGoal)}, ${S.flowdesk && S.flowdesk.todo ? S.flowdesk.todo.open.length + ' to do' : ''}`;
-      case 'pipe': { const pl = S.leads && S.leads.pipeline; return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.won} won` : ''; }
+      case 'pipe': { const pl = S.leads && S.leads.pipeline; return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.waitingOnUs} waiting on us` : ''; }
       case 'meta': { const t = (S.tokens || []).filter((x) => x.used != null); return t.length ? t.map((x) => `${x.account} ${Math.round(x.used)}%`).join(', ') : 'Claude usage'; }
       case 'team': return S.flowdesk?.ok ? `${S.flowdesk.doneToday} done today, ${S.flowdesk.doneWeek} this week, ${S.flowdesk.inProgress} in progress` : 'FlowDesk not connected';
       case 'lead': return S.leads?.ok ? `${num(S.leads.whatsappToday)} WhatsApps, ${num(S.leads.emailsToday)} emails, ${num(S.leads.leadsToday)} new leads today` : '';

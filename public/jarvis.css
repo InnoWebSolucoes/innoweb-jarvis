@@ -481,6 +481,13 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 #p-pipe .sk b { font-size: 26px; }
 #p-pipe .sk span { font-size: 13px; }
 #p-pipe .sk i { font-size: 13px; }
+#p-pipe .sk span { white-space: normal; }
+#p-pipe .meta.stale { color: #fb923c; }
+#p-pipe .funnel.dense .sk b { font-size: 20px; }
+#p-pipe .funnel.dense .sk span, #p-pipe .funnel.dense .sk i { font-size: 12px; }
+/* A column with many stages: number, share and name on one line. */
+#p-pipe .sk.tight b { font-size: 18px; }
+#p-pipe .sk.tight span { display: inline; margin-left: 6px; }
 #p-pipe .replies { flex: none; max-height: 230px; overflow: hidden; margin-top: 10px; }
 .rp { font-size: 14px; }
 .rp span { white-space: normal; overflow: visible; text-overflow: clip; color: var(--soft); }
