@@ -111,7 +111,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     $('rev-goal').textContent = eur(a.revenueGoal);
     $('rev-goal2').textContent = eur(a.revenueGoal);
     // Below zero the goal bar empties and a red bar runs in from the right edge
-    // of the screen to the middle, level with the goal bar.
+    // of the screen, level with the goal bar and to the same scale: -€2,000 on
+    // a €10,000 goal is a fifth of the goal bar's length.
     const neg = (a.revenue || 0) < 0;
     const pct = a.revenueGoal ? Math.min(1, Math.abs(a.revenue || 0) / a.revenueGoal) : 0;
     $('rev-bar').style.width = (pct * 100).toFixed(2) + '%';
@@ -122,6 +123,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       debt.style.top = ($('p-ach').offsetTop + $('rev-bar').parentNode.offsetTop) + 'px';
       $('debt-amt').textContent = eur(a.revenue);
     }
+    debt.style.width = neg ? Math.round(pct * $('rev-bar').parentNode.offsetWidth) + 'px' : '0';
     debt.className = neg ? 'on' : '';
     // The admin to-do list from FlowDesk
     const td = S.flowdesk && S.flowdesk.todo;

@@ -153,6 +153,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       debt.style.top = $("p-ach").offsetTop + $("rev-bar").parentNode.offsetTop + "px";
       $("debt-amt").textContent = eur(a.revenue);
     }
+    debt.style.width = neg ? Math.round(pct * $("rev-bar").parentNode.offsetWidth) + "px" : "0";
     debt.className = neg ? "on" : "";
     const td = S.flowdesk && S.flowdesk.todo;
     if (td) {
