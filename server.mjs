@@ -745,7 +745,7 @@ function answer(panel) {
       if (!l.ok) return 'I cannot read the lead finder right now.';
       const tr = l.tracker || {};
       const doing = !tr.online ? 'The Mac running it is not reporting.' : tr.queuePaused || tr.buildPaused ? `It is stuck: ${tr.queuePaused || tr.buildPaused}` : tr.building?.length ? `It is building ${tr.building.length} websites.` : tr.finder ? `Right now: ${tr.finder}.` : '';
-      const bySender = (l.senders || []).filter(x => x.today).map(x => `${x.today} from ${x.label}`).join(', ');
+      const bySender = (l.senders || []).filter(x => x.today).map(x => `${x.today} of ${x.cap} from ${x.label}`).join(', ');
       return `Today: ${l.whatsappToday} WhatsApps${bySender ? ` (${bySender})` : ''}, ${l.emailsToday} emails, ${l.leadsToday} new leads and ${l.repliesToday} replies. ${doing}`;
     }
     case 'link': {
@@ -958,7 +958,7 @@ function snapshot() {
     today: localDate(new Date()),
     claudeUsage: state.tokens.map(t => ({ account: t.account, sessionPercent: t.used, weekPercent: t.week, sessionResets: t.note })),
     adminTodoList: f.ok ? f.todo : 'not connected',
-    leadFinder: l.ok ? { pipeline: l.pipeline, today: { whatsapps: l.whatsappToday, emails: l.emailsToday, whatsappsByNumber: (l.senders || []).map(x => ({ number: x.label, linked: x.linked, sentToday: x.today, sentInAll: x.total })), newLeads: l.leadsToday, replies: l.repliesToday, sitesBuilt: l.builtToday, emails: l.emailsToday }, allTime: { leads: l.leads, demoSitesBuilt: l.built, websitesSent: l.sitesSent, emailsSent: l.emailsSent, whatsappsSent: l.whatsappSent, replies: l.replies }, rightNow: l.tracker } : 'not readable',
+    leadFinder: l.ok ? { pipeline: l.pipeline, today: { whatsapps: l.whatsappToday, emails: l.emailsToday, whatsappsByNumber: (l.senders || []).map(x => ({ number: x.label, linked: x.linked, sentToday: x.today, mayAllSendToday: x.cap })), newLeads: l.leadsToday, replies: l.repliesToday, sitesBuilt: l.builtToday, emails: l.emailsToday }, allTime: { leads: l.leads, demoSitesBuilt: l.built, websitesSent: l.sitesSent, emailsSent: l.emailsSent, whatsappsSent: l.whatsappSent, replies: l.replies }, rightNow: l.tracker } : 'not readable',
     flowdesk: f.ok ? { doneToday: f.doneToday, doneThisWeek: f.doneWeek, inProgress: f.inProgress, people: f.people.map(p => ({ name: p.name, status: p.status, doneToday: p.done, doneThisWeek: p.week, workingOnNow: p.working, stillDueToday: p.dueToday, lastDone: p.lastDone })) } : 'not connected',
     innolink: i.ok ? { opens: i.views, clicks: i.clicks, pages: i.clients.map(c => ({ name: c.name, opens: c.views, clicks: c.clicks })) } : 'not connected',
     sites: (state.board?.sites || []).map(s => ({ name: s.name, url: s.url, up: state.sites[s.url]?.ok ?? null })),

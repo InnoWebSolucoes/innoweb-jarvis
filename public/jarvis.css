@@ -457,7 +457,8 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 .pl-senders div { box-sizing: border-box; width: calc(100% / 7 - 6px); margin: 2px 3px; padding: 3px 9px 4px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); }
 .pl-senders span { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-senders b { font-size: 17px; font-weight: 800; line-height: 1.15; color: #e2e8f0; }
-.pl-senders i { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 6px; }
+.pl-senders i { font-style: normal; font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 4px; }
+.pl-senders .full b, .pl-senders .full i { color: #4ade80; }
 .pl-senders .idle b { color: var(--dim); }
 .pl-senders .off { background: rgba(239, 68, 68, 0.16); }
 .pl-senders .off span, .pl-senders .off b, .pl-senders .off i { color: #fca5a5; }

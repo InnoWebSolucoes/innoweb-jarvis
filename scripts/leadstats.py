@@ -207,23 +207,44 @@ def week(rows):
     return [{'date': d, 'emails': emails.get(d, 0), 'whatsapps': wa.get(d, 0), 'leads': new.get(d, 0)} for d in days]
 
 
-def senders(rows, setting_value, midnight):
-    """Each WhatsApp number the finder sends from: whether it's linked, and how
-    many it has sent today and in all. A sent WhatsApp is recorded as
-    "sent 25 Oct 11:35 from Personal 2" (sometimes with a note in brackets)."""
-    counts = {}
-    for label, today, total in rows("""SELECT trim(regexp_replace(substring(value from ' from (.*)$'), '\\s*\\(.*$', '')) AS label,
-                                         count(*) FILTER (WHERE updated_at >= %s), count(*)
-                                  FROM lead_values WHERE key = 'whatsapp_status' AND value LIKE 'sent %%' GROUP BY 1""", midnight):
-        if label:
-            counts[label.lower()] = (today, total)
+# How many outreach messages a WhatsApp number may send today, by the finder's
+# own rules (webapp/whatsapp.py cap()): nothing for 24 hours after it was linked;
+# then its step on the sending ladder (per_day, which the finder writes each day),
+# or 1 a day for its first 5 days and 2 after that.
+WA_WARM_H, WA_NEW_PER_DAY, WA_NEW_DAYS, WA_PER_DAY = 24, 1, 5, 2
+WA_TZ = ZoneInfo('Europe/Dublin')   # the finder's sending day
+
+
+def wa_cap(sender, now):
+    times = []
+    for key in ('linked_at', 'ramp_from'):
+        try:
+            times.append(datetime.fromisoformat(sender.get(key) or ''))
+        except ValueError:
+            pass
+    start = max(times) if times else None
+    if not start or now < start + timedelta(hours=WA_WARM_H):
+        return 0
+    if sender.get('per_day') is not None:
+        return int(sender['per_day'])
+    return WA_NEW_PER_DAY if now < start + timedelta(days=WA_NEW_DAYS) else WA_PER_DAY
+
+
+def senders(rows):
+    """Each WhatsApp number the finder sends from: linked or not, the outreach
+    messages it has sent today and how many it may send today. Counted the way
+    the finder counts them (webapp/uk_send.py sent_today): its send log, wa_log."""
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(WA_TZ).date().isoformat()
+    sent = {}
+    for e in setting(rows, 'wa_log') or []:
+        if e.get('result') == 'sent' and str(e.get('at', '')).startswith(today):
+            sent[e.get('sender')] = sent.get(e.get('sender'), 0) + 1
     out = []
-    for s in setting_value or []:
-        label = s.get('label') or s.get('id')
-        today, total = counts.pop(str(label).lower(), (0, 0))
-        out.append({'id': s.get('id'), 'label': label, 'linked': s.get('status') == 'linked', 'status': s.get('status'), 'today': today, 'total': total})
-    for label, (today, total) in counts.items():   # a number no longer in the list but still sent from
-        out.append({'id': label, 'label': label.title(), 'linked': None, 'status': 'not in the list', 'today': today, 'total': total})
+    for x in setting(rows, 'wa_senders') or []:
+        linked = x.get('status') == 'linked'
+        out.append({'id': x.get('id'), 'label': x.get('label') or x.get('id'), 'linked': linked, 'status': x.get('status'),
+                    'today': sent.get(x.get('id'), 0), 'cap': wa_cap(x, now) if linked else 0})
     return out
 
 
@@ -308,7 +329,7 @@ def collect(url):
         except (LookupError, psycopg.Error) as err:
             out['pipeline'], out['pipelineError'] = None, str(err).splitlines()[0][:200]
         out['week'] = week(rows)
-        out['senders'] = senders(rows, setting(rows, 'wa_senders'), midnight)
+        out['senders'] = senders(rows)
         # The last WhatsApp that went out, word for word, and who it went to.
         last = rows("""SELECT l.name, p.name, s.value, s.updated_at, m.value
                         FROM lead_values s JOIN leads l ON l.id = s.lead_id JOIN projects p ON p.id = l.project_id

@@ -180,15 +180,16 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (lf.ok) {
       roll($('lf-wa'), lf.whatsappToday);
       roll($('lf-email'), lf.emailsToday);
-      // Each WhatsApp number, under the pipeline: sent today and in all. Logged-out
-      // ones first, in red; a number no longer in the finder's list only if it sent today.
-      const nums = (lf.senders || []).filter((x) => x.linked !== null || x.today > 0)
-        .sort((a, b) => (a.linked === false ? 0 : 1) - (b.linked === false ? 0 : 1) || b.today - a.today || b.total - a.total);
-      const loggedOut = nums.filter((x) => x.linked === false).length;
-      $('pl-senders-head').innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ''} · sent today, and in all`;
+      // Each WhatsApp number, under the pipeline: outreach messages sent today out
+      // of what it may send today (its cap). Logged-out ones first, in red; full ones in green.
+      const nums = (lf.senders || []).slice()
+        .sort((a, b) => (a.linked ? 1 : 0) - (b.linked ? 1 : 0) || b.today - a.today || (b.cap || 0) - (a.cap || 0));
+      const loggedOut = nums.filter((x) => !x.linked).length;
+      $('pl-senders-head').innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ''} · outreach sent today, of each one's limit`;
       $('pl-senders').innerHTML = nums.map((x) => {
         const label = String(x.label).replace(/^rafa personal$/i, 'Rafa').replace(/^\w/, (c) => c.toUpperCase());
-        return `<div class="${x.linked === false ? 'off' : x.today ? '' : 'idle'}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>${x.linked === false ? 'logged out' : num(x.total) + ' in all'}</i></div>`;
+        const cls = !x.linked ? 'off' : x.cap && x.today >= x.cap ? 'full' : x.today || x.cap ? '' : 'idle';
+        return `<div class="${cls}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>of ${num(x.cap || 0)}</i></div>`;
       }).join('');
       roll($('lf-new'), lf.leadsToday);
       const tr = lf.tracker || {};

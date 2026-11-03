@@ -197,12 +197,13 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     if (lf.ok) {
       roll($("lf-wa"), lf.whatsappToday);
       roll($("lf-email"), lf.emailsToday);
-      const nums = (lf.senders || []).filter((x) => x.linked !== null || x.today > 0).sort((a2, b2) => (a2.linked === false ? 0 : 1) - (b2.linked === false ? 0 : 1) || b2.today - a2.today || b2.total - a2.total);
-      const loggedOut = nums.filter((x) => x.linked === false).length;
-      $("pl-senders-head").innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ""} \xB7 sent today, and in all`;
+      const nums = (lf.senders || []).slice().sort((a2, b2) => (a2.linked ? 1 : 0) - (b2.linked ? 1 : 0) || b2.today - a2.today || (b2.cap || 0) - (a2.cap || 0));
+      const loggedOut = nums.filter((x) => !x.linked).length;
+      $("pl-senders-head").innerHTML = `<b>WhatsApp numbers</b>${nums.length - loggedOut} linked${loggedOut ? `, <em>${loggedOut} logged out</em>` : ""} \xB7 outreach sent today, of each one's limit`;
       $("pl-senders").innerHTML = nums.map((x) => {
         const label = String(x.label).replace(/^rafa personal$/i, "Rafa").replace(/^\w/, (c) => c.toUpperCase());
-        return `<div class="${x.linked === false ? "off" : x.today ? "" : "idle"}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>${x.linked === false ? "logged out" : num(x.total) + " in all"}</i></div>`;
+        const cls = !x.linked ? "off" : x.cap && x.today >= x.cap ? "full" : x.today || x.cap ? "" : "idle";
+        return `<div class="${cls}"><span>${esc(label)}</span><b>${num(x.today)}</b><i>of ${num(x.cap || 0)}</i></div>`;
       }).join("");
       roll($("lf-new"), lf.leadsToday);
       const tr = lf.tracker || {};
