@@ -13,3 +13,5 @@ __pycache__/
 bin/
 data/innolink-*.json
 data/whatsapp/chats.json
+
+.vercel

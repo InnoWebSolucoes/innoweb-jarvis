@@ -292,26 +292,34 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const cols = [];
     for (const id in nodes) if (id === 'contacted' || nodes[id].n > 0) (cols[nodes[id].col] = cols[nodes[id].col] || []).push(id);
     for (let c = cols.length - 1; c >= 0; c--) if (!cols[c]) cols.splice(c, 1);
-    // A column with many stages: smaller slots, and the labels go on one line.
     const most = Math.max(1, ...cols.map((ids) => ids.length));
     // Many columns (the stages after the demo): smaller labels, a name over two lines.
     const dense = cols.length > 5;
     box.className = dense ? 'funnel dense' : 'funnel';
-    let SLOT = dense ? 48 : 40;
-    if ((SLOT + GAP) * (most - 1) > H * 0.6) SLOT = Math.max(22, Math.floor((H * 0.6) / (most - 1)) - GAP);
+    // Each stage is at least as tall as its label (number and a two-line name).
+    let SLOT = dense ? 56 : 44;
+    const fits = (sc) => cols.every((ids) => ids.reduce((t, id) => t + Math.max(nodes[id].n * sc, SLOT), 0) + GAP * (ids.length - 1) <= H);
+    // A column with more stages than labels fit: smaller slots, and the labels go on one line.
+    if (!fits(0)) SLOT = Math.max(22, Math.floor((H - GAP * (most - 1)) / most));
     const tight = SLOT < 36;
-    const scale = (H - (SLOT + GAP) * (most - 1)) / Math.max(1, sent);
+    // The bands as wide as they can be with every column still fitting the panel's height.
+    let scale = 0;
+    for (let lo = 0, hi = H / Math.max(1, sent), k = 0; k < 30; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = scale = mid; else hi = mid; }
     // Columns spread over the width; with only one or two stages, they stay a readable distance apart.
     const step = cols.length > 1 ? Math.min((W - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     // Centred across the panel.
     const ox = Math.max(0, Math.round((W - ((cols.length - 1) * step + NODE + LABEL)) / 2));
+    // Each column's stages spread down the height (a little room between them,
+    // not so much they drift apart), the column centred.
     cols.forEach((ids, c) => {
-      let y = 0;
+      const used = ids.reduce((t, id) => t + Math.max(nodes[id].n * scale, SLOT), 0);
+      const gap = ids.length > 1 ? Math.min(GAP + (H - used - GAP * (ids.length - 1)) / (ids.length - 1), GAP + 40) : 0;
+      let y = Math.max(0, (H - used - gap * (ids.length - 1)) / 2);
       ids.forEach((id) => {
         const nd = nodes[id];
         nd.c = c; nd.x = ox + Math.round(c * step); nd.h = Math.max(3, nd.n * scale);
         nd.y = y; nd.out = y; nd.in = y;
-        y += Math.max(nd.h, SLOT) + GAP;
+        y += Math.max(nd.h, SLOT) + gap;
       });
     });
     let paths = '';
@@ -329,7 +337,8 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const nd = nodes[id], parents = links.filter((l) => l[1] === id), parent = parents.length === 1 && parents[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
       const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round((nd.n / nodes[parent[0]].n) * 100)}%</i>` : '';
-      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H - SLOT, nd.y + nd.h / 2 - (tight ? 10 : 16)));
+      // The label beside the middle of a tall stage; at the top of a thin one, in the slot kept for it.
+      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H - SLOT, nd.y + (nd.h - SLOT) / 2));
       // A stage's name wraps before it reaches the next column.
       const room = nd.c === cols.length - 1 ? W - nd.x - NODE - 8 : step - NODE - 16;
       text += `<div class="sk${nd.n ? '' : ' none'}${tight ? ' tight' : ''}" data-c="${nd.c}" style="left:${nd.x + NODE + 8}px;top:${top}px;max-width:${Math.max(60, Math.round(room))}px"><b>${num(nd.n)}</b>${pct}<span>${esc(nd.label)}</span></div>`;

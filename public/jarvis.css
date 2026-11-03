@@ -450,13 +450,13 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 #wa-screen { display: none; flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #0b141a; }
 
 /* Under the pipeline: each WhatsApp number, what it sent today and in all; logged out in red, first. */
-.pl-senders-head { flex: none; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.pl-senders-head { flex: none; margin-top: 8px; font-size: 13px; color: var(--muted); }
 .pl-senders-head b { color: var(--soft); font-weight: 700; margin-right: 6px; }
 .pl-senders-head em { font-style: normal; font-weight: 700; color: #fca5a5; }
 .pl-senders { display: flex; flex-wrap: wrap; flex: none; margin: 4px -3px 0; }
-.pl-senders div { box-sizing: border-box; width: calc(100% / 7 - 6px); margin: 3px; padding: 5px 9px 6px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
-.pl-senders span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-senders b { font-size: 20px; font-weight: 800; line-height: 1.2; color: #e2e8f0; }
+.pl-senders div { box-sizing: border-box; width: calc(100% / 7 - 6px); margin: 2px 3px; padding: 3px 9px 4px; border-radius: 9px; background: rgba(255, 255, 255, 0.05); }
+.pl-senders span { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-senders b { font-size: 17px; font-weight: 800; line-height: 1.15; color: #e2e8f0; }
 .pl-senders i { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 6px; }
 .pl-senders .idle b { color: var(--dim); }
 .pl-senders .off { background: rgba(239, 68, 68, 0.16); }

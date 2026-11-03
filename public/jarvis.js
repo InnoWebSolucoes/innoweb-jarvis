@@ -310,14 +310,22 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const most = Math.max(1, ...cols.map((ids) => ids.length));
     const dense = cols.length > 5;
     box.className = dense ? "funnel dense" : "funnel";
-    let SLOT = dense ? 48 : 40;
-    if ((SLOT + GAP) * (most - 1) > H2 * 0.6) SLOT = Math.max(22, Math.floor(H2 * 0.6 / (most - 1)) - GAP);
+    let SLOT = dense ? 56 : 44;
+    const fits = (sc) => cols.every((ids) => ids.reduce((t, id) => t + Math.max(nodes[id].n * sc, SLOT), 0) + GAP * (ids.length - 1) <= H2);
+    if (!fits(0)) SLOT = Math.max(22, Math.floor((H2 - GAP * (most - 1)) / most));
     const tight = SLOT < 36;
-    const scale = (H2 - (SLOT + GAP) * (most - 1)) / Math.max(1, sent);
+    let scale = 0;
+    for (let lo = 0, hi = H2 / Math.max(1, sent), k = 0; k < 30; k++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = scale = mid;
+      else hi = mid;
+    }
     const step = cols.length > 1 ? Math.min((W2 - NODE - LABEL - 40) / (cols.length - 1), 420) : 0;
     const ox = Math.max(0, Math.round((W2 - ((cols.length - 1) * step + NODE + LABEL)) / 2));
     cols.forEach((ids, c) => {
-      let y = 0;
+      const used = ids.reduce((t, id) => t + Math.max(nodes[id].n * scale, SLOT), 0);
+      const gap = ids.length > 1 ? Math.min(GAP + (H2 - used - GAP * (ids.length - 1)) / (ids.length - 1), GAP + 40) : 0;
+      let y = Math.max(0, (H2 - used - gap * (ids.length - 1)) / 2);
       ids.forEach((id) => {
         const nd = nodes[id];
         nd.c = c;
@@ -326,7 +334,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
         nd.y = y;
         nd.out = y;
         nd.in = y;
-        y += Math.max(nd.h, SLOT) + GAP;
+        y += Math.max(nd.h, SLOT) + gap;
       });
     });
     let paths = "";
@@ -344,7 +352,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       const nd = nodes[id], parents = links.filter((l) => l[1] === id), parent = parents.length === 1 && parents[0];
       paths += `<rect x="${nd.x}" y="${nd.y}" width="${NODE}" height="${nd.h}" rx="2" fill="${nd.color}" fill-opacity="${nd.n ? 1 : 0.35}"/>`;
       const pct = parent && nodes[parent[0]].n ? `<i style="color:${nd.color}">${Math.round(nd.n / nodes[parent[0]].n * 100)}%</i>` : "";
-      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H2 - SLOT, nd.y + nd.h / 2 - (tight ? 10 : 16)));
+      const top = Math.round(nd.h < SLOT ? nd.y : Math.min(H2 - SLOT, nd.y + (nd.h - SLOT) / 2));
       const room = nd.c === cols.length - 1 ? W2 - nd.x - NODE - 8 : step - NODE - 16;
       text += `<div class="sk${nd.n ? "" : " none"}${tight ? " tight" : ""}" data-c="${nd.c}" style="left:${nd.x + NODE + 8}px;top:${top}px;max-width:${Math.max(60, Math.round(room))}px"><b>${num(nd.n)}</b>${pct}<span>${esc(nd.label)}</span></div>`;
     }
