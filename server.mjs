@@ -145,7 +145,7 @@ function readBoard() {
 function diffBoard(prev, next) {
   if (!prev) return;
   const a = prev.achievements, b = next.achievements;
-  const eur = n => '€' + Number(n).toLocaleString('en-IE');
+  const eur = n => (n < 0 ? '-€' : '€') + Math.abs(Number(n)).toLocaleString('en-IE');
   if (b.revenue > a.revenue) log('win', 'board', `${eur(b.revenue - a.revenue)} came in. ${eur(b.revenue)} of ${eur(b.revenueGoal)}`, { panel: 'ach', big: true, title: `+${eur(b.revenue - a.revenue)}` });
   if (b.clientsManaged > a.clientsManaged) log('win', 'board', `New client signed. Now managing ${b.clientsManaged}`, { panel: 'ach', big: true, title: 'NEW CLIENT' });
   if (b.websiteDeals > a.websiteDeals) log('win', 'board', `Website deal closed. ${b.websiteDeals} website deals`, { panel: 'ach', big: true, title: 'DEAL CLOSED' });
@@ -706,7 +706,7 @@ function matchSite(t) {
   return null;
 }
 
-const eur = n => '€' + Math.round(n || 0).toLocaleString('en-IE');
+const eur = n => (n < 0 ? '-€' : '€') + Math.abs(Math.round(n || 0)).toLocaleString('en-IE');
 function answer(panel) {
   const b = state.board || {}, a = b.achievements || {};
   switch (panel) {
@@ -1199,7 +1199,7 @@ async function moveFlowdeskTask(task, date) {
 function setRevenue(amount) {
   const b = JSON.parse(fs.readFileSync(BOARD_FILE, 'utf8'));
   const was = b.achievements.revenue;
-  b.achievements.revenue = Math.max(0, Math.round(amount));
+  b.achievements.revenue = Math.round(amount);
   const tmp = BOARD_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(b, null, 2) + '\n');
   fs.renameSync(tmp, BOARD_FILE);

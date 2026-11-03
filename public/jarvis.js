@@ -54,7 +54,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   const stage = $("stage");
   const W = 1920, H = 1080;
   const POLL_MS = 5e3;
-  const eur = (n) => "\u20AC" + Math.round(n || 0).toLocaleString("en-IE");
+  const eur = (n) => (n < 0 ? "-\u20AC" : "\u20AC") + Math.abs(Math.round(n || 0)).toLocaleString("en-IE");
   const num = (n) => Math.round(n || 0).toLocaleString("en-IE");
   const esc = (s) => String(s != null ? s : "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -143,7 +143,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     roll($("rev-now"), a.revenue, eur);
     $("rev-goal").textContent = eur(a.revenueGoal);
     $("rev-goal2").textContent = eur(a.revenueGoal);
-    const pct = a.revenueGoal ? Math.min(1, (a.revenue || 0) / a.revenueGoal) : 0;
+    const pct = a.revenueGoal ? Math.max(0, Math.min(1, (a.revenue || 0) / a.revenueGoal)) : 0;
     $("rev-bar").style.width = (pct * 100).toFixed(2) + "%";
     $("rev-pct").textContent = `${(pct * 100).toFixed(pct < 0.1 && pct > 0 ? 1 : 0)}% of the way`;
     const td = S.flowdesk && S.flowdesk.todo;
