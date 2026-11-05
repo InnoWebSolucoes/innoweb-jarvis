@@ -155,17 +155,6 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     }
     debt.style.width = neg ? Math.round(pct * $("rev-bar").parentNode.offsetWidth) + "px" : "0";
     debt.className = neg ? "on" : "";
-    const td = S.flowdesk && S.flowdesk.todo;
-    if (td) {
-      $("todo-count").textContent = `${td.open.length} open${td.doneToday ? `, ${td.doneToday} done today` : ""}`;
-      $("todo").innerHTML = td.open.map((t) => {
-        const meta = [t.urgent ? "Urgent" : "", t.who, t.doDate ? (/* @__PURE__ */ new Date(t.doDate + "T12:00")).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""].filter(Boolean).join(", ");
-        return `<li class="${t.urgent ? "urgent" : ""}"><span>${esc(t.title)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}</li>`;
-      }).join("") || "<li><span>Nothing left on the list</span></li>";
-    } else {
-      $("todo-count").textContent = "";
-      $("todo").innerHTML = "<li><span>Reading the FlowDesk to-do list</span></li>";
-    }
     const pctCls = (v) => v >= 100 ? "full" : v >= 85 ? "warn" : "";
     const resets = (iso, fallback) => {
       const ms = Date.parse(iso) - Date.now();
@@ -405,6 +394,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   let logKey = "";
   const SOURCE_NAMES = { flowdesk: "FlowDesk", leads: "Leads", innolink: "Innolink", sites: "Sites", board: "Board", meta: "Meta", tokens: "Usage", voice: "You", jarvis: "Jarvis", test: "Test" };
   function renderLog() {
+    if (!$("log")) return;
     const server = ((S == null ? void 0 : S.events) || []).map((e) => __spreadProps(__spreadValues({}, e), { t: Date.parse(e.at) }));
     const all = [...server, ...localLog].sort((x, y) => y.t - x.t).slice(0, 18);
     const key = all.map((e) => {
@@ -883,7 +873,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
     const days = ((_b = S.board) == null ? void 0 : _b.countdown) ? Math.max(0, Math.ceil((new Date(S.board.countdown.target) - Date.now()) / 864e5)) : null;
     switch (key) {
       case "ach":
-        return `${eur(a.revenue)} of ${eur(a.revenueGoal)}, ${S.flowdesk && S.flowdesk.todo ? S.flowdesk.todo.open.length + " to do" : ""}`;
+        return `${eur(a.revenue)} of ${eur(a.revenueGoal)}`;
       case "pipe": {
         const pl = S.leads && S.leads.pipeline;
         return pl ? `${pl.sent} contacted, ${pl.replied} replied, ${pl.waitingOnUs} waiting on us` : "";
@@ -947,7 +937,7 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
   function alarm(e) {
     return __async(this, null, function* () {
       unzoom();
-      const key = panels[e.panel] ? e.panel : "log";
+      const key = panels[e.panel] ? e.panel : "pipe";
       const panel = panels[key];
       spider.el.classList.add("angry");
       alarmEl.classList.add("on");

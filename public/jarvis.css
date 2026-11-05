@@ -537,3 +537,22 @@ h2 { font-size: 16px; font-weight: 600; color: #e2e8f0; }
 
 
 .rp i.no { color: #f87171; }
+
+/* ------------------------------------------------------------ no to-do list, no live log */
+/* The team takes the left column under the goal, one person under another;
+   the pipeline gets the whole height of the centre. */
+#p-team { left: 24px; top: 414px; width: 460px; height: 642px; }
+#p-pipe { top: 24px; height: 1032px; }
+#p-team .team { flex-direction: column; }
+#p-team .person { margin: 0 0 12px; padding: 12px 16px; }
+#p-team .person:last-child { margin-bottom: 0; }
+#p-team .avatar { width: 36px; height: 36px; line-height: 36px; font-size: 14px; }
+#p-team .person-name { font-size: 16px; }
+#p-team .p-now { margin-top: 8px; padding: 7px 10px; font-size: 14px; max-height: 52px; }
+#p-team .p-list { margin-top: 6px; font-size: 12px; }
+#p-team .p-list small { margin-bottom: 2px; }
+#p-team .p-list div { line-height: 1.4; }
+#p-team .p-bar { margin-top: 6px; }
+#p-team .p-bar-track { height: 8px; }
+#p-team .p-bar-text { margin-top: 4px; font-size: 12px; }
+#p-team .p-bar-text b { font-size: 13px; }
