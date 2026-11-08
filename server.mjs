@@ -335,7 +335,7 @@ function tokenRows() {
 
 // --- Supabase (FlowDesk and Innolink)
 
-// Reading FlowDesk and Innolink is in lib/sources.mjs, shared with the live site.
+// Reading FlowDesk and Innolink is in lib/sources.mjs.
 const flowdeskHeaders = () => sharedFlowdeskHeaders(FLOWDESK);
 
 // FlowDesk's numbers come from lib/sources.mjs; here its notifications, new
@@ -591,57 +591,7 @@ function startWhatsApp() {
   py.on('close', () => { waProc = null; state.whatsapp.state = 'off'; state.whatsapp.ready = false; setTimeout(startWhatsApp, 30000); });
 }
 
-// --- the live site. Vercel serves the pages and checks the password; the data,
-// voice and films come from this PC through a Cloudflare tunnel. The tunnel's
-// address changes when it restarts, so it is published (with nothing secret in
-// it) where the Vercel site reads it. Requests through the tunnel must carry
-// RELAY_SECRET, which only the Vercel site has.
-const RELAY_SECRET = env.RELAY_SECRET || '';
-const TUNNEL_BIN = path.join(ROOT, 'bin', 'cloudflared.exe');
-state.tunnel = null;
-async function publishTunnel(url) {
-  if (!INNOLINK.service) return;
-  const h = { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}` };
-  await fetch(`${INNOLINK.url}/storage/v1/bucket`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'jarvis-public', name: 'jarvis-public', public: true }) }).catch(() => {});
-  const res = await fetch(`${INNOLINK.url}/storage/v1/object/jarvis-public/tunnel.json`, {
-    method: 'POST', headers: { ...h, 'Content-Type': 'application/json', 'x-upsert': 'true', 'cache-control': 'max-age=5' },
-    body: JSON.stringify({ url, at: new Date().toISOString() }),
-  });
-  if (!res.ok) throw new Error(`publish tunnel ${res.status}`);
-}
-// Cloudflare's free tunnels sometimes go dead while cloudflared keeps running:
-// every minute Jarvis fetches a small file through its own tunnel, and after
-// two misses in a row it starts a new tunnel (which publishes its new address).
-let tunnelProc = null, tunnelStarted = 0, tunnelMisses = 0;
-setInterval(async () => {
-  if (!tunnelProc || !state.tunnel || Date.now() - tunnelStarted < 90000) return;
-  try {
-    const res = await fetch(`${state.tunnel}/mark.svg`, { headers: { 'x-jarvis-relay': RELAY_SECRET }, signal: AbortSignal.timeout(15000) });
-    if (!res.ok) throw new Error(String(res.status));
-    tunnelMisses = 0;
-  } catch (err) {
-    if (++tunnelMisses >= 2) {
-      log('warn', 'jarvis', 'The live site lost its connection; reconnecting', { quiet: true });
-      tunnelMisses = 0;
-      try { tunnelProc.kill(); } catch {}
-    }
-  }
-}, 60000);
-
-function startTunnel() {
-  if (!RELAY_SECRET || !fs.existsSync(TUNNEL_BIN)) return;
-  tunnelStarted = Date.now();
-  const cf = tunnelProc = spawn(TUNNEL_BIN, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { windowsHide: true });
-  const seen = (d) => {
-    const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-    if (m && m[0] !== state.tunnel) {
-      state.tunnel = m[0];
-      publishTunnel(m[0]).then(() => log('info', 'jarvis', 'Live site connected', { quiet: true })).catch(err => console.error('tunnel:', err.message));
-    }
-  };
-  cf.stdout.on('data', seen); cf.stderr.on('data', seen);
-  cf.on('close', () => { if (tunnelProc === cf) tunnelProc = null; state.tunnel = null; setTimeout(startTunnel, 5000); });
-}
+const RELAY_SECRET = env.RELAY_SECRET || '';   // only signs voice links now
 
 function shootSites(onlyMissing) {
   if (!SITE_REEL) return;
@@ -1083,7 +1033,7 @@ function remember(c) {
 }
 // A TV hands sound to its own media player, which fetches the file without the
 // login cookie; so each voice file's address carries a signature instead, and
-// the live site lets a signed address through.
+// the address stays usable without it.
 function ttsSig(name) { return crypto.createHmac('sha256', RELAY_SECRET || 'local').update('tts:' + name).digest('hex').slice(0, 20); }
 function pushCommand(c) {
   c.sig = ttsSig(String(c.id));
@@ -1680,27 +1630,6 @@ startTtsWorker();
 startReplyWatch();
 warmClaude();
 
-// The numbers stay up on the live site while this computer is off: every 30
-// seconds the dashboard's state is saved next to the tunnel address, encrypted
-// with RELAY_SECRET (only the live site can read it), and the live site shows
-// it, marked as the last saved figures, whenever this computer doesn't answer.
-async function saveSnapshot() {
-  if (!RELAY_SECRET || !INNOLINK.service) return;
-  const st = publicState();
-  st.whatsapp = { ...st.whatsapp, qr: null };
-  const json = Buffer.from(JSON.stringify({ ...st, savedAt: new Date().toISOString() }));
-  const key = crypto.createHash('sha256').update(RELAY_SECRET).digest();
-  const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const body = Buffer.concat([iv, c.update(json), c.final(), c.getAuthTag()]);
-  const res = await fetch(`${INNOLINK.url}/storage/v1/object/jarvis-public/state.bin`, {
-    method: 'POST', body, signal: AbortSignal.timeout(20000),
-    headers: { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}`, 'Content-Type': 'application/octet-stream', 'x-upsert': 'true', 'cache-control': 'max-age=0' },
-  });
-  if (!res.ok) throw new Error(`snapshot ${res.status}`);
-}
-setTimeout(() => every(30_000, () => saveSnapshot().catch(err => console.error('snapshot:', err.message))), 60_000);
-
 function every(ms, fn) { const run = () => Promise.resolve(fn()).catch(err => console.error(err)); run(); return setInterval(run, ms); }
 
 refreshBoard();
@@ -1715,7 +1644,6 @@ setTimeout(() => shootSites(true), 2000);
 setInterval(() => shootSites(false), 6 * 3600_000);
 setTimeout(filmDemos, 20000);
 setTimeout(startWhatsApp, 3000);
-setTimeout(startTunnel, 2000);
 setInterval(filmDemos, 6 * 3600_000);
 log('info', 'jarvis', 'Jarvis online', { quiet: true });
 
@@ -1730,7 +1658,7 @@ function send(res, code, body, type = 'application/json') {
 
 // Editing needs the password from .env. With none set, only this PC can edit.
 function allowedToEdit(req) {
-  if (req.headers['cf-connecting-ip']) return !!RELAY_SECRET && req.headers['x-jarvis-relay'] === RELAY_SECRET;
+  if (req.headers['cf-connecting-ip']) return false;
   if (PASSWORD) return req.headers['x-jarvis-key'] === PASSWORD;
   const ip = req.socket.remoteAddress || '';
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -1780,8 +1708,8 @@ const screens = {};
 const clientLog = [];
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  // Through the tunnel (Cloudflare adds cf-connecting-ip): only the Vercel site, with the secret.
-  if (req.headers['cf-connecting-ip'] && (!RELAY_SECRET || req.headers['x-jarvis-relay'] !== RELAY_SECRET)) return send(res, 403, { error: 'Open Jarvis through its live site' });
+  // Jarvis is only for the office network; nothing from outside (Cloudflare adds cf-connecting-ip).
+  if (req.headers['cf-connecting-ip']) return send(res, 403, { error: 'Jarvis only opens on the office network' });
   try {
     if (url.pathname === '/api/state') {
       if (url.searchParams.get('vw')) screens[req.socket.remoteAddress] = { vw: url.searchParams.get('vw'), vh: url.searchParams.get('vh'), dpr: url.searchParams.get('dpr'), ua: String(req.headers['user-agent'] || '').slice(0, 160), at: new Date().toISOString() };

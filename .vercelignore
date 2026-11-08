@@ -1,9 +1,0 @@
-.env
-data
-bin
-node_modules
-public/demos
-public/shots
-scripts
-src
-*.bat
