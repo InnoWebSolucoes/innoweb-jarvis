@@ -591,7 +591,66 @@ function startWhatsApp() {
   py.on('close', () => { waProc = null; state.whatsapp.state = 'off'; state.whatsapp.ready = false; setTimeout(startWhatsApp, 30000); });
 }
 
-const RELAY_SECRET = env.RELAY_SECRET || '';   // only signs voice links now
+// --- online. This PC is put online through a free Cloudflare tunnel (no
+// account, no usage limits; nothing on Vercel). The tunnel's address changes
+// when it restarts, so it is published (nothing secret in it) to Supabase,
+// where the fixed address on GitHub Pages (docs/index.html) looks it up.
+// Everything through the tunnel needs the password (ONLINE_PASSWORD), except
+// the login page itself and signed voice files.
+const RELAY_SECRET = env.RELAY_SECRET || '';   // signs the login cookie and voice links
+const ONLINE_PASSWORD = env.ONLINE_PASSWORD || '';
+const LAUNCHER = 'https://innowebsolucoes.github.io/innoweb-jarvis/';
+const TUNNEL_BIN = path.join(ROOT, 'bin', 'cloudflared.exe');
+const onlineToken = () => crypto.createHmac('sha256', RELAY_SECRET).update('online:' + ONLINE_PASSWORD).digest('hex');
+function loggedIn(req) {
+  const m = /(?:^|;\s*)jarvis=([a-f0-9]{64})/.exec(req.headers.cookie || '');
+  return !!(m && ONLINE_PASSWORD && RELAY_SECRET && m[1] === onlineToken());
+}
+const loginTries = new Map();   // ip -> [times], at most 5 wrong passwords a minute
+state.tunnel = null;
+async function publishTunnel(url) {
+  if (!INNOLINK.service) return;
+  const h = { apikey: INNOLINK.service, Authorization: `Bearer ${INNOLINK.service}` };
+  await fetch(`${INNOLINK.url}/storage/v1/bucket`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'jarvis-public', name: 'jarvis-public', public: true }) }).catch(() => {});
+  const res = await fetch(`${INNOLINK.url}/storage/v1/object/jarvis-public/tunnel.json`, {
+    method: 'POST', headers: { ...h, 'Content-Type': 'application/json', 'x-upsert': 'true', 'cache-control': 'max-age=5' },
+    body: JSON.stringify({ url, at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`publish tunnel ${res.status}`);
+}
+// Cloudflare's free tunnels sometimes go dead while cloudflared keeps running:
+// every minute Jarvis fetches a small file through its own tunnel, and after
+// two misses in a row it starts a new tunnel (which publishes its new address).
+let tunnelProc = null, tunnelStarted = 0, tunnelMisses = 0;
+setInterval(async () => {
+  if (!tunnelProc || !state.tunnel || Date.now() - tunnelStarted < 90000) return;
+  try {
+    const res = await fetch(`${state.tunnel}/mark.svg`, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(String(res.status));
+    tunnelMisses = 0;
+  } catch (err) {
+    if (++tunnelMisses >= 2) {
+      log('warn', 'jarvis', 'Jarvis online lost its connection; reconnecting', { quiet: true });
+      tunnelMisses = 0;
+      try { tunnelProc.kill(); } catch {}
+    }
+  }
+}, 60000);
+
+function startTunnel() {
+  if (!RELAY_SECRET || !ONLINE_PASSWORD || !fs.existsSync(TUNNEL_BIN)) return;
+  tunnelStarted = Date.now();
+  const cf = tunnelProc = spawn(TUNNEL_BIN, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { windowsHide: true });
+  const seen = (d) => {
+    const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (m && m[0] !== state.tunnel) {
+      state.tunnel = m[0];
+      publishTunnel(m[0]).then(() => log('info', 'jarvis', 'Jarvis is online', { quiet: true })).catch(err => console.error('tunnel:', err.message));
+    }
+  };
+  cf.stdout.on('data', seen); cf.stderr.on('data', seen);
+  cf.on('close', () => { if (tunnelProc === cf) tunnelProc = null; state.tunnel = null; setTimeout(startTunnel, 5000); });
+}
 
 function shootSites(onlyMissing) {
   if (!SITE_REEL) return;
@@ -1033,7 +1092,7 @@ function remember(c) {
 }
 // A TV hands sound to its own media player, which fetches the file without the
 // login cookie; so each voice file's address carries a signature instead, and
-// the address stays usable without it.
+// Jarvis lets a signed address through without the login.
 function ttsSig(name) { return crypto.createHmac('sha256', RELAY_SECRET || 'local').update('tts:' + name).digest('hex').slice(0, 20); }
 function pushCommand(c) {
   c.sig = ttsSig(String(c.id));
@@ -1643,6 +1702,7 @@ loadShots();
 setTimeout(() => shootSites(true), 2000);
 setInterval(() => shootSites(false), 6 * 3600_000);
 setTimeout(filmDemos, 20000);
+setTimeout(startTunnel, 2000);
 setTimeout(startWhatsApp, 3000);
 setInterval(filmDemos, 6 * 3600_000);
 log('info', 'jarvis', 'Jarvis online', { quiet: true });
@@ -1658,7 +1718,7 @@ function send(res, code, body, type = 'application/json') {
 
 // Editing needs the password from .env. With none set, only this PC can edit.
 function allowedToEdit(req) {
-  if (req.headers['cf-connecting-ip']) return false;
+  if (req.headers['cf-connecting-ip']) return loggedIn(req);
   if (PASSWORD) return req.headers['x-jarvis-key'] === PASSWORD;
   const ip = req.socket.remoteAddress || '';
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
@@ -1708,8 +1768,32 @@ const screens = {};
 const clientLog = [];
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  // Jarvis is only for the office network; nothing from outside (Cloudflare adds cf-connecting-ip).
-  if (req.headers['cf-connecting-ip']) return send(res, 403, { error: 'Jarvis only opens on the office network' });
+  // From outside (through the tunnel, Cloudflare adds cf-connecting-ip): the password first.
+  const outside = req.headers['cf-connecting-ip'];
+  if (url.pathname === '/api/login' && req.method === 'POST') {
+    if (!ONLINE_PASSWORD || !RELAY_SECRET) return send(res, 403, { error: 'No online password set' });
+    const ip = String(outside || req.socket.remoteAddress);
+    const tries = (loginTries.get(ip) || []).filter(t => Date.now() - t < 60000);
+    if (tries.length >= 5) return send(res, 429, { error: 'Too many tries; wait a minute' });
+    const { password, token } = await body(req).catch(() => ({}));
+    const want = onlineToken();
+    if (password !== ONLINE_PASSWORD && token !== want) { tries.push(Date.now()); loginTries.set(ip, tries); return send(res, 401, { error: 'Wrong password' }); }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Set-Cookie': `jarvis=${want}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax` });
+    return res.end(JSON.stringify({ ok: true, token: want, launcher: LAUNCHER }));
+  }
+  if (outside && !loggedIn(req)) {
+    const open = url.pathname === '/login.html' || url.pathname === '/mark.svg' || (/^\/api\/tts\//.test(url.pathname) && url.searchParams.get('sig'));
+    if (!open) {
+      if (url.pathname.startsWith('/api/') || req.method !== 'GET') return send(res, 401, { error: 'login' });
+      res.writeHead(302, { Location: '/login.html?next=' + encodeURIComponent(url.pathname + url.search), 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+  }
+  if (outside && url.pathname === '/login.html' && loggedIn(req)) {
+    const next = String(url.searchParams.get('next') || '/');
+    res.writeHead(302, { Location: next.startsWith('/') && !next.startsWith('//') ? next : '/', 'Cache-Control': 'no-store' });
+    return res.end();
+  }
   try {
     if (url.pathname === '/api/state') {
       if (url.searchParams.get('vw')) screens[req.socket.remoteAddress] = { vw: url.searchParams.get('vw'), vh: url.searchParams.get('vh'), dpr: url.searchParams.get('dpr'), ua: String(req.headers['user-agent'] || '').slice(0, 160), at: new Date().toISOString() };

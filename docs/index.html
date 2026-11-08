@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Innoweb Jarvis</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; color: #f1f5f9; font: 16px/1.5 'Segoe UI', Roboto, Arial, sans-serif; text-align: center;
+    background: radial-gradient(900px 700px at 85% -10%, rgba(37, 99, 235, 0.35), rgba(37, 99, 235, 0) 70%), radial-gradient(900px 700px at 100% 110%, rgba(234, 88, 12, 0.22), rgba(234, 88, 12, 0) 68%), #05070d; }
+  main { padding: 32px 16px; }
+  svg { width: 48px; height: 48px; color: #93c5fd; }
+  h1 { margin: 10px 0 4px; font-size: 26px; }
+  p { margin: 0; color: #94a3b8; }
+</style>
+</head>
+<body>
+<main>
+  <svg viewBox="-30 -30 60 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><polygon points="24,0 12,-20.8 -12,-20.8 -24,0 -12,20.8 12,20.8"/><polygon points="10,0 5,-8.7 -5,-8.7 -10,0 -5,8.7 5,8.7"/><path d="M10,0L24,0M5,-8.7L12,-20.8M-5,-8.7L-12,-20.8M-10,0L-24,0M-5,8.7L-12,20.8M5,8.7L12,20.8"/></g></svg>
+  <h1>Innoweb Jarvis</h1>
+  <p id="msg">Connecting to the Jarvis computer…</p>
+</main>
+<script>
+  // The fixed address for Jarvis. Jarvis runs on the office PC and is online
+  // through a Cloudflare tunnel whose address changes; the PC publishes the
+  // current one (tunnel.json, nothing secret in it). This page looks it up,
+  // checks it answers, and goes there. It also remembers the login key the
+  // PC hands back (#t=...), so a new tunnel doesn't ask for the password again.
+  var TUNNEL_JSON = 'https://wjmrwszorppurykmwmwt.supabase.co/storage/v1/object/public/jarvis-public/tunnel.json';
+  var BASE = '/innoweb-jarvis';
+  function hashGet(k) { var m = new RegExp('[#&]' + k + '=([^&]*)').exec(location.hash); return m ? decodeURIComponent(m[1]) : ''; }
+  function store(k, v) { try { if (v) localStorage.setItem(k, v); return localStorage.getItem(k) || ''; } catch (e) { return v || ''; } }
+  var token = store('jarvis-token', /^[a-f0-9]{64}$/.test(hashGet('t')) ? hashGet('t') : '');
+  var path = hashGet('next') || (location.pathname.indexOf(BASE) === 0 ? location.pathname.slice(BASE.length) : location.pathname) + location.search;
+  if (path.charAt(0) !== '/' || path.charAt(1) === '/') path = '/';
+  if (path === '/index.html' || path === '/404.html') path = '/';
+  if (history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+
+  function msg(t) { document.getElementById('msg').textContent = t; }
+  function retry(t) { msg(t); setTimeout(find, 30000); }
+  function find() {
+    var x = new XMLHttpRequest();
+    x.open('GET', TUNNEL_JSON + '?t=' + Date.now());
+    x.timeout = 15000;
+    x.onload = function () {
+      var url = '';
+      try { url = JSON.parse(x.responseText).url || ''; } catch (e) {}
+      if (x.status !== 200 || !/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(url)) return retry('The Jarvis computer is off. Trying again every 30 seconds…');
+      // Is the tunnel answering? A picture loads without the login.
+      var img = new Image(), done = false;
+      var fail = function () { if (!done) { done = true; retry('The Jarvis computer is not answering. Trying again every 30 seconds…'); } };
+      img.onload = function () { if (done) return; done = true; location.replace(url + '/login.html?next=' + encodeURIComponent(path) + (token ? '#t=' + token : '')); };
+      img.onerror = fail;
+      setTimeout(fail, 15000);
+      img.src = url + '/mark.svg?t=' + Date.now();
+    };
+    x.onerror = x.ontimeout = function () { retry('No internet connection. Trying again every 30 seconds…'); };
+    x.send();
+  }
+  find();
+</script>
+</body>
+</html>

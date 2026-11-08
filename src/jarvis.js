@@ -1185,6 +1185,12 @@ if (window.NodeList && !NodeList.prototype.forEach) NodeList.prototype.forEach =
       render();
     } catch {
       failures++;
+      // Opened online and the tunnel stopped answering (its address changes when
+      // it restarts): back to the fixed address, which finds the new one.
+      if (failures >= 6 && /\.trycloudflare\.com$/.test(location.hostname)) {
+        location.href = 'https://innowebsolucoes.github.io/innoweb-jarvis/#next=' + encodeURIComponent(location.pathname + location.search);
+        return;
+      }
       if (failures === 3 && !serverDown) {
         serverDown = true;
         queue.push({ level: 'error', panel: 'log', text: 'Jarvis server is not answering' });
